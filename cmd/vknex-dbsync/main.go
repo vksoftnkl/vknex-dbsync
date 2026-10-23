@@ -73,6 +73,7 @@ func main() {
 		"ddl", cfg.DDL,
 		"ddl_drop", cfg.DDLDrop,
 		"mark_synced", cfg.MarkSynced,
+		"mark_txn", cfg.MarkTxn,
 		"interval", cfg.Interval.String(),
 		"instant", cfg.Instant)
 

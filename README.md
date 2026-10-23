@@ -106,6 +106,7 @@ Every flag also reads an environment variable (or `.env`).
 | `-ddl` | `SYNC_DDL` | `false` | Apply the source's structure to the target first (see below) |
 | `-ddl-drop` | `SYNC_DDL_DROP` | `false` | With `-ddl`: also drop target tables, partitions and columns the source no longer has |
 | `-mark-synced` | `SYNC_MARK_SYNCED` | `false` | Set each table's sync column (`…_sync_date`) on both sides after a run (see below) |
+| `-mark-txn` | `SYNC_MARK_TXN` | `true` | With `-mark-synced`, also set it on the `-txn-tables`; `false` = only the master tables |
 | `-instant` | `SYNC_INSTANT` | `false` | Mirror every table not in `-txn-tables` within seconds of a change; needs `-interval` (see below) |
 | `-txn-tables` | `SYNC_TXN_TABLES` | | With `-instant`: comma-separated tables (`table` or `schema.table`) synced only every `-interval` |
 | `-updated-cols` | `SYNC_UPDATED_COLS` | `updatedAt,updated_at` | Change-tracking column names |
@@ -154,6 +155,8 @@ With `-mark-synced`, after the data:
 2. After the target commits, the same rows on the source get the **same** time — unless the row was edited after the run read it (its row version changed); it stays waiting for the next run. The `sync_deleted_rows` entries of synced tables, up to the run's snapshot, get `sdr_sync_date`.
 3. Rows that break one of their table's `NOT VALID` checks are left waiting on both sides: PostgreSQL refuses any update of them until they are corrected.
 
+With `-mark-txn=false` only the master tables (those not in `-txn-tables`) get the sync time, together with their `sync_deleted_rows` entries; the transaction tables keep `NULL` on both sides. With `-instant` that means every instant sync of a master table stamps its rows on the live DB in the same transaction and on the local DB right after, while the interval runs of the transaction tables stamp nothing.
+
 The source stamp runs with triggers off (`session_replication_role = replica`) when the source user is a superuser, so it is not recorded as a change in the audit log. Only turn this on when the target is the real live database: on a test copy it would mark local rows as sent to live when they are not.
 
 ## Instant mirroring (`-instant`)
@@ -200,6 +203,8 @@ WantedBy=multi-user.target
 ```
 
 **Linux desktop, click to start**: run `deploy/linux/install.sh` once. It builds the binary, adds a systemd user service (`~/.config/systemd/user/vknex-dbsync.service`, settings from `.env`, logs appended to `vknex-dbsync.log`, restarted 30 s after a crash) and a "VK Nex DB Sync" icon on the desktop and in the app grid. Click the icon to start the sync in the background; right-click it for Stop and Show log. `systemctl --user enable vknex-dbsync.service` also starts it at every login.
+
+When the live database is only reachable through SSH, pass the `~/.ssh/config` host whose `LocalForward` opens the tunnel: `deploy/linux/install.sh erp-vps`. That adds `vknex-dbsync-tunnel.service` (`ssh -N erp-vps`, reconnected 10 s after it drops), which starts and stops with the sync. Point `SYNC_TARGET_URL` at the forwarded local port (e.g. `127.0.0.1:5433`), not at `127.0.0.1:5432`: that is this machine's own Postgres, and the sync fails with `database "erp_rehearsal" does not exist`.
 
 **Windows, double-click**: build with `-ldflags "-H=windowsgui"` (see Build) and put `vknex-dbsync.exe` and `.env` (with `SYNC_INTERVAL=5m`) in one folder. Double-clicking the exe starts it in the background with no window:
 

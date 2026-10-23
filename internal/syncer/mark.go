@@ -18,7 +18,8 @@ import (
 // whose sync column (e.g. abj_sync_date) is NULL has changes the live DB has
 // not seen yet, and deletes wait in public.sync_deleted_rows with
 // sdr_sync_date NULL. After a successful run those rows get the sync time on
-// both sides.
+// both sides. With -mark-txn=false only the master tables (outside
+// -txn-tables) are stamped: the others have no SyncCol (schema.Select).
 
 // pendingRows are a table's rows waiting at the snapshot: key and row version.
 type pendingRows struct {
@@ -140,6 +141,18 @@ func (s *Syncer) markTarget(ctx context.Context, tx pgx.Tx, tables map[string]*s
 // waiting for the next run. Triggers are skipped when the source user may do
 // so: the stamp is bookkeeping, not a change to log or audit.
 func (s *Syncer) markSource(ctx context.Context, src *pgx.Conn, tables map[string]*schema.Table, m *syncMarks, at time.Time) error {
+	var logged []string // tables whose logged deletes get the stamp
+	if m.deleteLog && m.deletesUpTo > 0 && s.cfg.Deletes {
+		for name, t := range tables {
+			if s.cfg.Marked(t.Schema, t.Name) {
+				logged = append(logged, name)
+			}
+		}
+	}
+	if len(m.rows) == 0 && len(logged) == 0 {
+		return nil // e.g. an interval run of -txn-tables with -mark-txn=false
+	}
+
 	tx, err := src.Begin(ctx)
 	if err != nil {
 		return err
@@ -171,16 +184,12 @@ func (s *Syncer) markSource(ctx context.Context, src *pgx.Conn, tables map[strin
 	}
 
 	var deletes int64
-	if m.deleteLog && m.deletesUpTo > 0 && s.cfg.Deletes {
+	if len(logged) > 0 {
 		// Every delete logged before the snapshot is on the target now: the run
 		// removed all target rows the snapshot does not have.
-		synced := make([]string, 0, len(tables))
-		for name := range tables {
-			synced = append(synced, name)
-		}
 		tag, err := tx.Exec(ctx, `UPDATE public.sync_deleted_rows SET sdr_sync_date = $1
 			WHERE sdr_sync_date IS NULL AND sdr_id <= $2 AND sdr_schema || '.' || sdr_table = ANY($3::text[])`,
-			at, m.deletesUpTo, synced)
+			at, m.deletesUpTo, logged)
 		if err != nil {
 			return fmt.Errorf("set sdr_sync_date: %w", err)
 		}

@@ -30,6 +30,7 @@ type Config struct {
 	DDL             bool
 	DDLDrop         bool
 	MarkSynced      bool
+	MarkTxn         bool
 	Instant         bool
 	TxnTables       []string
 	DryRun          bool
@@ -65,6 +66,7 @@ func Load(args []string) (*Config, error) {
 	fs.BoolVar(&c.DDL, "ddl", envBool("SYNC_DDL", false), "create/alter target schemas, enum types, tables, partitions, columns, constraints and indexes to match the source [SYNC_DDL]")
 	fs.BoolVar(&c.DDLDrop, "ddl-drop", envBool("SYNC_DDL_DROP", false), "with -ddl, also drop target tables, partitions and columns the source no longer has; their data is lost [SYNC_DDL_DROP]")
 	fs.BoolVar(&c.MarkSynced, "mark-synced", envBool("SYNC_MARK_SYNCED", false), "after a run, set each table's sync column (…sync_date) on target and source for the rows that were waiting (NULL), and sdr_sync_date in public.sync_deleted_rows [SYNC_MARK_SYNCED]")
+	fs.BoolVar(&c.MarkTxn, "mark-txn", envBool("SYNC_MARK_TXN", true), "with -mark-synced, also set the sync column of the -txn-tables; false = only the master tables (the others) [SYNC_MARK_TXN]")
 	fs.BoolVar(&c.Instant, "instant", envBool("SYNC_INSTANT", false), "mirror every table not in -txn-tables within seconds of a change on the source; -txn-tables follow -interval [SYNC_INSTANT]")
 	txn := fs.String("txn-tables", env("SYNC_TXN_TABLES", ""), "with -instant: comma-separated tables (name or schema.name) synced only every -interval [SYNC_TXN_TABLES]")
 	fs.BoolVar(&c.DryRun, "dry-run", envBool("SYNC_DRY_RUN", false), "show the plan and row counts, change nothing [SYNC_DRY_RUN]")
@@ -112,6 +114,12 @@ func Load(args []string) (*Config, error) {
 // which -instant leaves to the -interval runs.
 func (c *Config) Txn(schema, name string) bool {
 	return slices.Contains(c.TxnTables, name) || slices.Contains(c.TxnTables, schema+"."+name)
+}
+
+// Marked reports whether -mark-synced sets a table's sync column: every synced
+// table, or with -mark-txn=false only those outside -txn-tables.
+func (c *Config) Marked(schema, name string) bool {
+	return c.MarkSynced && (c.MarkTxn || !c.Txn(schema, name))
 }
 
 // Wanted applies -include / -exclude, which accept "table" or "schema.table".

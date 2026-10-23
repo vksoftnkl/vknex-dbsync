@@ -20,7 +20,7 @@ func Select(all map[string]*Table, cfg *config.Config) map[string]*Table {
 				break
 			}
 		}
-		if cfg.MarkSynced && len(t.PK) > 0 {
+		if cfg.Marked(t.Schema, t.Name) && len(t.PK) > 0 {
 			t.SyncCol = syncColumn(t)
 		}
 		out[key] = t
