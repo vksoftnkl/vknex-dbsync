@@ -33,21 +33,27 @@ func readSourceSequences(ctx context.Context, tx pgx.Tx, tables map[string]*sche
 // setSequences moves each target sequence past both the source sequence and
 // the highest id on the target, so new rows on either side never collide.
 func setSequences(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, srcSeq map[seqKey]int64) error {
+	batch := &pgx.Batch{} // one round trip for every sequence
+	var cols []string
 	for name, t := range tables {
 		for _, col := range t.SeqCols {
-			var seq *string
-			if err := tx.QueryRow(ctx, "SELECT pg_get_serial_sequence(format('%I.%I', $1::text, $2::text), $3)", t.Schema, t.Name, col).Scan(&seq); err != nil {
-				return err
-			}
-			if seq == nil {
-				continue
-			}
-			q := fmt.Sprintf(`SELECT CASE WHEN m >= 1 THEN setval($1::regclass, m, true) ELSE setval($1::regclass, 1, false) END
-				FROM (SELECT GREATEST($2::bigint, COALESCE(max(%s), 0)::bigint) AS m FROM %s) x`, pg.Ident(col), t.QName())
-			if _, err := tx.Exec(ctx, q, *seq, srcSeq[seqKey{name, col}]); err != nil {
-				return fmt.Errorf("set sequence %s: %w", *seq, err)
-			}
+			// No row when the target column has no sequence.
+			batch.Queue(fmt.Sprintf(`SELECT CASE WHEN m >= 1 THEN setval(seq, m, true) ELSE setval(seq, 1, false) END
+				FROM (SELECT pg_get_serial_sequence(format('%%I.%%I', $1::text, $2::text), $3)::regclass AS seq,
+				             GREATEST($4::bigint, COALESCE(max(%s), 0)::bigint) AS m FROM %s) x
+				WHERE seq IS NOT NULL`, pg.Ident(col), t.QName()), t.Schema, t.Name, col, srcSeq[seqKey{name, col}])
+			cols = append(cols, name+"."+col)
 		}
 	}
-	return nil
+	if len(cols) == 0 {
+		return nil
+	}
+	br := tx.SendBatch(ctx, batch)
+	for _, col := range cols {
+		if _, err := br.Exec(); err != nil {
+			br.Close()
+			return fmt.Errorf("set sequence of %s: %w", col, err)
+		}
+	}
+	return br.Close()
 }

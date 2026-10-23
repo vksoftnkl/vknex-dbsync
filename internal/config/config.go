@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,11 +39,15 @@ type Config struct {
 	NaiveTZ         string
 	MetaSchema      string
 	LogJSON         bool
+	LogFile         string
 }
 
 // Load reads .env, then the flags (defaulting to the environment), and checks the result.
 func Load(args []string) (*Config, error) {
 	loadDotEnv(".env")
+	if exe, err := os.Executable(); err == nil { // a double-clicked or scheduled binary may start elsewhere
+		loadDotEnv(filepath.Join(filepath.Dir(exe), ".env"))
+	}
 
 	c := &Config{}
 	fs := flag.NewFlagSet("vknex-dbsync", flag.ContinueOnError)
@@ -69,6 +74,7 @@ func Load(args []string) (*Config, error) {
 	fs.StringVar(&c.NaiveTZ, "naive-tz", env("SYNC_NAIVE_TZ", "UTC"), "time zone of 'timestamp without time zone' change columns (Prisma stores UTC) [SYNC_NAIVE_TZ]")
 	fs.StringVar(&c.MetaSchema, "meta-schema", env("SYNC_META_SCHEMA", "vknex_sync"), "schema on target holding sync state [SYNC_META_SCHEMA]")
 	fs.BoolVar(&c.LogJSON, "log-json", envBool("SYNC_LOG_JSON", false), "JSON logs [SYNC_LOG_JSON]")
+	fs.StringVar(&c.LogFile, "log-file", env("SYNC_LOG_FILE", ""), "append the logs to this file instead of stdout; without a console they go to vknex-dbsync.log next to the binary [SYNC_LOG_FILE]")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err

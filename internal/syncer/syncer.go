@@ -18,8 +18,14 @@ import (
 	"github.com/vksoftwares/vknex-dbsync/internal/schema"
 )
 
-// Any constant works; it only stops two sync processes from writing at once.
-const advisoryLockKey int64 = 0x564B4E4558 // "VKNEX"
+// Any constants work; they only stop two syncs of the same kind from writing
+// at once. Interval runs and instant runs (-instant) move different tables, so
+// each kind has its own lock.
+const (
+	advisoryLockKey int64 = 0x564B4E4558 // "VKNEX"
+	instantLockKey  int64 = advisoryLockKey + 1
+	metaLockKey     int64 = advisoryLockKey + 2 // see ensureMeta
+)
 
 // Syncer mirrors the source database into the target, one run at a time.
 type Syncer struct {
@@ -41,7 +47,9 @@ type runStats struct {
 }
 
 // RunOnce performs one complete, atomic sync. Either every table on the target
-// is updated in one transaction, or nothing changes.
+// is updated in one transaction, or nothing changes. With -instant it moves the
+// data of the -txn-tables only (Watch mirrors the others), unless it changes
+// the schema: then every table, while Watch waits.
 func (s *Syncer) RunOnce(ctx context.Context) error {
 	started := time.Now()
 	cfg := s.cfg
@@ -65,17 +73,11 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 		return fmt.Errorf("invalid -naive-tz %q: %w", cfg.NaiveTZ, err)
 	}
 
-	// One consistent snapshot of the source for the whole run.
-	srcTx, err := src.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	srcTx, snapshot, err := beginSnapshot(ctx, src)
 	if err != nil {
-		return fmt.Errorf("begin source snapshot: %w", err)
-	}
-	defer srcTx.Rollback(context.Background())
-
-	var snapshot time.Time
-	if err := srcTx.QueryRow(ctx, "SELECT now()").Scan(&snapshot); err != nil {
 		return err
 	}
+	defer srcTx.Rollback(context.Background())
 
 	var srcAll map[string]*schema.Table
 	var srcInfo *ddl.Info
@@ -117,26 +119,26 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 		}
 	}
 
-	order, cyclic := schema.FKOrder(tables, !cfg.DisableTriggers)
-	if len(cyclic) > 0 && !cfg.DisableTriggers {
-		return fmt.Errorf("tables %s form a foreign-key cycle with no nullable column to break it; run with -disable-triggers", strings.Join(cyclic, ", "))
+	// The tables whose data this run moves. Constraints and NOT NULL added after
+	// the data need every table's rows current, so a run that changes the schema
+	// moves them all. A dry run shows them all.
+	data := tables
+	whole := !cfg.Instant || cfg.DryRun || changes.Count() > 0
+	if !whole {
+		data = schema.Subset(tables, func(t *schema.Table) bool { return cfg.Txn(t.Schema, t.Name) })
 	}
-	for _, name := range order {
-		if t := tables[name]; len(t.Break) > 0 {
-			if len(t.PK) == 0 {
-				return fmt.Errorf("table %s is in a foreign-key cycle but has no primary key; run with -disable-triggers", name)
-			}
-			s.log.Info("foreign-key cycle: these columns are filled in a second pass", "table", name, "columns", strings.Join(t.Break, ","))
-		}
+	order, err := s.order(data)
+	if err != nil {
+		return err
 	}
 
-	srcSeq, err := readSourceSequences(ctx, srcTx, tables)
+	srcSeq, err := readSourceSequences(ctx, srcTx, data)
 	if err != nil {
 		return err
 	}
 	marks := &syncMarks{}
 	if cfg.MarkSynced {
-		if marks, err = readPending(ctx, srcTx, tables); err != nil {
+		if marks, err = readPending(ctx, srcTx, data); err != nil {
 			return err
 		}
 	}
@@ -151,7 +153,7 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 		if cfg.MarkSynced {
 			s.log.Info("DRY RUN: sync time would be set", "rows", marks.count(), "tables", len(marks.rows), "deletes_up_to_id", marks.deletesUpTo)
 		}
-		return s.plan(ctx, srcTx, dst, tables, order, changes.Reset)
+		return s.plan(ctx, srcTx, dst, data, order, changes.Reset)
 	}
 
 	// A new enum value cannot be used in the transaction that adds it.
@@ -162,31 +164,24 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 		}
 	}
 
-	dstTx, err := dst.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin target: %w", err)
-	}
-	defer dstTx.Rollback(context.Background())
-
-	var locked bool
-	if err := dstTx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock($1)", advisoryLockKey).Scan(&locked); err != nil {
+	if err := s.ensureMeta(ctx, dst); err != nil {
 		return err
 	}
+	dstTx, locked, err := s.begin(ctx, dst, advisoryLockKey)
+	if err != nil {
+		return err
+	}
+	defer dstTx.Rollback(context.Background())
 	if !locked {
 		s.log.Warn("another sync is already running against this target; skipping this run")
 		return nil
 	}
-
-	setup := []string{
-		fmt.Sprintf("SET LOCAL lock_timeout = %d", cfg.LockTimeout.Milliseconds()),
-		"SET LOCAL statement_timeout = 0",
-	}
-	if cfg.DisableTriggers {
-		setup = append(setup, "SET LOCAL session_replication_role = replica")
-	}
-	for _, q := range setup {
-		if _, err := dstTx.Exec(ctx, q); err != nil {
-			return fmt.Errorf("%s: %w", q, err)
+	if cfg.Instant && whole {
+		// Keep Watch out of the instant tables until this commits. It touches no
+		// table before this point, so waiting for a running instant sync is safe.
+		s.log.Info("schema changes: this run moves every table; instant sync pauses until it commits")
+		if err := waitLock(ctx, dstTx, instantLockKey, cfg.LockTimeout); err != nil {
+			return err
 		}
 	}
 
@@ -208,21 +203,17 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 		}
 	}
 
-	if err := s.ensureMeta(ctx, dstTx); err != nil {
-		return err
-	}
-
 	var st runStats
 	switch cfg.Mode {
 	case "full":
-		err = s.full(ctx, src, dstTx, tables, order, &st)
+		err = s.full(ctx, src, dstTx, data, order, &st)
 	default:
 		var state map[string]time.Time
 		if state, err = s.loadState(ctx, dstTx); err == nil {
 			for name := range changes.Reset {
 				delete(state, name)
 			}
-			err = s.incremental(ctx, src, dstTx, tables, order, state, &st)
+			err = s.incremental(ctx, src, dstTx, data, order, state, &st)
 		}
 	}
 	if err != nil {
@@ -232,18 +223,20 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 		return err
 	}
 
-	syncedAt := time.Now().Truncate(time.Microsecond)
-	if err := s.markTarget(ctx, dstTx, tables, marks, syncedAt); err != nil {
-		return err
+	// Tell Watch about instant tables this run created or reshaped, so that new
+	// ones get the change trigger.
+	var handOver []string
+	if cfg.Instant {
+		for name := range changes.Reset {
+			if t := tables[name]; t != nil && !cfg.Txn(t.Schema, t.Name) {
+				handOver = append(handOver, name)
+			}
+		}
 	}
-	if err := setSequences(ctx, dstTx, tables, srcSeq); err != nil {
+
+	syncedAt, err := s.finish(ctx, dstTx, data, marks, srcSeq, snapshot, started, cfg.Mode, &st)
+	if err != nil {
 		return err
-	}
-	if err := s.saveState(ctx, dstTx, tables, snapshot, started, &st); err != nil {
-		return err
-	}
-	if err := dstTx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit target: %w", err)
 	}
 
 	s.log.Info("sync complete",
@@ -255,17 +248,108 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 		"rows_deleted", st.Deleted,
 		"took", time.Since(started).Round(time.Millisecond).String())
 
+	if err := srcTx.Rollback(ctx); err != nil { // end the read-only snapshot
+		return err
+	}
 	if cfg.MarkSynced {
-		if err := srcTx.Rollback(ctx); err != nil { // end the read-only snapshot
-			return err
-		}
 		// The data is on the target already. If this fails, the rows stay waiting
 		// on the source and the next run copies them (and their sync time) again.
-		if err := s.markSource(ctx, src, tables, marks, syncedAt); err != nil {
+		if err := s.markSource(ctx, src, data, marks, syncedAt); err != nil {
 			s.log.Warn("could not set the sync time on the source; the next run retries", "err", err)
 		}
 	}
+	if len(handOver) > 0 {
+		if err := announce(ctx, src, handOver); err != nil {
+			s.log.Warn("could not hand the changed tables to the instant sync; they are synced on their next change", "err", err)
+		}
+	}
 	return nil
+}
+
+// beginSnapshot opens one consistent, read-only snapshot of the source and
+// returns its time.
+func beginSnapshot(ctx context.Context, src *pgx.Conn) (pgx.Tx, time.Time, error) {
+	tx, err := src.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("begin source snapshot: %w", err)
+	}
+	var at time.Time
+	if err := tx.QueryRow(ctx, "SELECT now()").Scan(&at); err != nil {
+		tx.Rollback(context.Background())
+		return nil, time.Time{}, err
+	}
+	return tx, at, nil
+}
+
+// order sorts tables parents first and refuses FK cycles it cannot break.
+func (s *Syncer) order(tables map[string]*schema.Table) ([]string, error) {
+	order, cyclic := schema.FKOrder(tables, !s.cfg.DisableTriggers)
+	if len(cyclic) > 0 && !s.cfg.DisableTriggers {
+		return nil, fmt.Errorf("tables %s form a foreign-key cycle with no nullable column to break it; run with -disable-triggers", strings.Join(cyclic, ", "))
+	}
+	for _, name := range order {
+		if t := tables[name]; len(t.Break) > 0 {
+			if len(t.PK) == 0 {
+				return nil, fmt.Errorf("table %s is in a foreign-key cycle but has no primary key; run with -disable-triggers", name)
+			}
+			s.log.Info("foreign-key cycle: these columns are filled in a second pass", "table", name, "columns", strings.Join(t.Break, ","))
+		}
+	}
+	return order, nil
+}
+
+// begin opens the target transaction, takes the advisory lock key and sets
+// the session options, in one round trip. locked is false when another sync
+// holds the lock.
+func (s *Syncer) begin(ctx context.Context, dst *pgx.Conn, key int64) (tx pgx.Tx, locked bool, err error) {
+	if tx, err = dst.Begin(ctx); err != nil {
+		return nil, false, fmt.Errorf("begin target: %w", err)
+	}
+	batch := &pgx.Batch{}
+	batch.Queue("SELECT pg_try_advisory_xact_lock($1)", key).QueryRow(func(row pgx.Row) error { return row.Scan(&locked) })
+	batch.Queue(fmt.Sprintf("SET LOCAL lock_timeout = %d", s.cfg.LockTimeout.Milliseconds()))
+	batch.Queue("SET LOCAL statement_timeout = 0")
+	if s.cfg.DisableTriggers {
+		batch.Queue("SET LOCAL session_replication_role = replica")
+	}
+	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
+		tx.Rollback(context.Background())
+		return nil, false, fmt.Errorf("prepare target transaction: %w", err)
+	}
+	return tx, locked, nil
+}
+
+// waitLock waits for advisory lock key without the -lock-timeout limit; it is
+// held until tx ends.
+func waitLock(ctx context.Context, tx pgx.Tx, key int64, restore time.Duration) error {
+	batch := &pgx.Batch{}
+	batch.Queue("SET LOCAL lock_timeout = 0")
+	batch.Queue("SELECT pg_advisory_xact_lock($1)", key)
+	batch.Queue(fmt.Sprintf("SET LOCAL lock_timeout = %d", restore.Milliseconds()))
+	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
+		return fmt.Errorf("wait for the instant sync: %w", err)
+	}
+	return nil
+}
+
+// finish stamps the sync time, moves the sequences past the copied ids,
+// records the run and commits. It returns the sync time.
+func (s *Syncer) finish(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, marks *syncMarks, srcSeq map[seqKey]int64,
+	snapshot, started time.Time, mode string, st *runStats) (time.Time, error) {
+	syncedAt := time.Now().Truncate(time.Microsecond)
+	if err := s.markTarget(ctx, tx, tables, marks, syncedAt); err != nil {
+		return syncedAt, err
+	}
+	if err := setSequences(ctx, tx, tables, srcSeq); err != nil {
+		return syncedAt, err
+	}
+	if err := s.saveState(ctx, tx, tables, mode, snapshot, started, st); err != nil {
+		return syncedAt, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return syncedAt, fmt.Errorf("commit target: %w", err)
+	}
+	return syncedAt, nil
 }
 
 // guardDifferent refuses to run when both URLs reach the same database.

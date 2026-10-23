@@ -6,7 +6,8 @@ It runs as its own small binary, separate from the NestJS backend:
 
 - only this tool holds both connection strings,
 - a heavy sync never slows down or crashes the live API,
-- it can run once, on a schedule, or as a 24/7 worker.
+- it can run once, on a schedule, or as a 24/7 worker,
+- with `-instant`, master tables reach the live DB seconds after a change while transaction tables follow the schedule.
 
 ## Build
 
@@ -15,7 +16,8 @@ Requires Go 1.23+.
 ```bash
 go mod tidy
 go build -o vknex-dbsync ./cmd/vknex-dbsync                              # current OS
-GOOS=windows GOARCH=amd64 go build -o vknex-dbsync.exe ./cmd/vknex-dbsync  # Windows
+GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui" -o vknex-dbsync.exe ./cmd/vknex-dbsync  # Windows, double-click runs it in the background
+GOOS=windows GOARCH=amd64 go build -o vknex-dbsync.exe ./cmd/vknex-dbsync  # Windows, console (for -dry-run in a terminal)
 GOOS=linux   GOARCH=amd64 go build -o vknex-dbsync ./cmd/vknex-dbsync      # Linux / EC2
 go test ./...
 ```
@@ -104,6 +106,8 @@ Every flag also reads an environment variable (or `.env`).
 | `-ddl` | `SYNC_DDL` | `false` | Apply the source's structure to the target first (see below) |
 | `-ddl-drop` | `SYNC_DDL_DROP` | `false` | With `-ddl`: also drop target tables, partitions and columns the source no longer has |
 | `-mark-synced` | `SYNC_MARK_SYNCED` | `false` | Set each table's sync column (`…_sync_date`) on both sides after a run (see below) |
+| `-instant` | `SYNC_INSTANT` | `false` | Mirror every table not in `-txn-tables` within seconds of a change; needs `-interval` (see below) |
+| `-txn-tables` | `SYNC_TXN_TABLES` | | With `-instant`: comma-separated tables (`table` or `schema.table`) synced only every `-interval` |
 | `-updated-cols` | `SYNC_UPDATED_COLS` | `updatedAt,updated_at` | Change-tracking column names |
 | `-overlap` | `SYNC_OVERLAP` | `5m` | Safety window re-read on each run |
 | `-deletes` | `SYNC_DELETES` | `true` | Mirror deletes |
@@ -112,6 +116,7 @@ Every flag also reads an environment variable (or `.env`).
 | `-lock-timeout` | `SYNC_LOCK_TIMEOUT` | `30s` | Give up if a live table stays locked this long |
 | `-meta-schema` | `SYNC_META_SCHEMA` | `vknex_sync` | Schema for sync state on the target |
 | `-log-json` | `SYNC_LOG_JSON` | `false` | JSON log lines |
+| `-log-file` | `SYNC_LOG_FILE` | stdout | Append the logs to this file; without a console (Windows background build) `vknex-dbsync.log` next to the binary |
 
 ## Schema changes (`-ddl`)
 
@@ -151,6 +156,30 @@ With `-mark-synced`, after the data:
 
 The source stamp runs with triggers off (`session_replication_role = replica`) when the source user is a superuser, so it is not recorded as a change in the audit log. Only turn this on when the target is the real live database: on a test copy it would mark local rows as sent to live when they are not.
 
+## Instant mirroring (`-instant`)
+
+With `-instant` (and `-interval`), the synced tables are split in two:
+
+- **Transaction tables**, listed in `-txn-tables` (bills, vouchers, stock movements, logs): synced by the interval runs, e.g. every 5 minutes.
+- **Every other table** (masters, settings): inserts, updates and deletes reach the target a few seconds after they are committed locally.
+
+How it works:
+
+1. On start, the tool puts a statement trigger `zz_vknex_sync_notify` on every instant table of the **source**, calling `vknex_sync.notify_change()`. When a transaction that changed the table commits, the trigger sends the table's name on the `vknex_sync` channel (`pg_notify`). Tables that are moved to `-txn-tables` or excluded lose the trigger.
+2. A listener on that channel waits 0.3 s for the rest of the save, then runs an incremental sync of just the tables named, in one transaction on the target. It has its own advisory lock, so it runs alongside an interval run.
+3. On start, and after losing the source connection, every instant table is synced once to catch up on changes made while nothing was listening.
+4. Schema changes (`-ddl`) stay with the interval runs. An interval run that has schema changes to apply moves **every** table, not just the transaction tables, so that the constraints, indexes and `NOT NULL` it adds after the data find every table current. Instant syncs pause while it runs (`instant sync paused` … `resumed`). An instant table whose structure changed locally waits for that run (logged as a warning). New tables get the trigger after it.
+5. When one table's data makes a run fail, the tables are tried one at a time, in between new changes, so one table cannot hold up the others. Connection errors, lock timeouts and a pause retry the whole set: after 5 s, doubling up to 1 minute (a pause keeps checking every 5 s).
+
+A change takes 0.3 s plus one sync of its table, about 9 round trips: well under a second on a local network, about 5.5 s over a 576 ms link.
+
+Things to know:
+
+- With `-disable-triggers` the target does not check foreign keys. Deleting a master row locally (after its transactions) removes it from the live DB at once, while the live transaction rows that point at it stay until the next interval run deletes them. Without `-disable-triggers` that delete fails and is retried until the interval run has removed them.
+- Statement triggers on a partitioned table do not fire for statements on a partition, so keep partitioned tables in `-txn-tables`.
+- `vknex_sync.run_log` gets a row for every instant run (`mode = 'instant'`).
+- To take the triggers off the local database: `DROP SCHEMA vknex_sync CASCADE;` on the source.
+
 ## Running it permanently
 
 **Linux (systemd)**: `/etc/systemd/system/vknex-dbsync.service`
@@ -170,7 +199,16 @@ RestartSec=30
 WantedBy=multi-user.target
 ```
 
-**Windows**: Task Scheduler running `vknex-dbsync.exe` every 5 minutes (without `-interval`), or wrap `vknex-dbsync.exe -interval 5m` as a service with NSSM.
+**Linux desktop, click to start**: run `deploy/linux/install.sh` once. It builds the binary, adds a systemd user service (`~/.config/systemd/user/vknex-dbsync.service`, settings from `.env`, logs appended to `vknex-dbsync.log`, restarted 30 s after a crash) and a "VK Nex DB Sync" icon on the desktop and in the app grid. Click the icon to start the sync in the background; right-click it for Stop and Show log. `systemctl --user enable vknex-dbsync.service` also starts it at every login.
+
+**Windows, double-click**: build with `-ldflags "-H=windowsgui"` (see Build) and put `vknex-dbsync.exe` and `.env` (with `SYNC_INTERVAL=5m`) in one folder. Double-clicking the exe starts it in the background with no window:
+
+- logs go to `vknex-dbsync.log` in that folder; startup errors (bad `.env`) pop up in a message box,
+- a second double-click only reports that it is already running,
+- to start it with Windows: `Win+R` → `shell:startup` → put a shortcut to the exe there,
+- to stop it: Task Manager → Details → `vknex-dbsync.exe` → End task, or `taskkill /IM vknex-dbsync.exe /F`. An open sync transaction is rolled back by the server.
+
+**Windows, other ways**: Task Scheduler running `vknex-dbsync.exe` every 5 minutes (without `-interval`), or wrap the console build `vknex-dbsync.exe -interval 5m` as a service with NSSM.
 
 **PM2** (if you already use it): `pm2 start ./vknex-dbsync --name dbsync -- -interval 5m`
 
@@ -200,3 +238,4 @@ Checked against two PostgreSQL 16 databases with a Prisma-style schema (quoted c
 
 `-ddl -ddl-drop` was checked on PostgreSQL 18 against an older copy of the VK Nex ERP database (8 schemas, 188 tables, 51 partitioned tables with ~1,900 partitions, enums, generated columns, ~4,000 constraints): one run applied 592 changes (new tables and partitions, added and retyped columns, rebuilt checks and indexes, dropped extra tables, columns and indexes, a renamed index), after which tables, columns, defaults, constraints, indexes, partitions, enums, functions and sequences matched the source exactly, the data of all 188 tables matched, and a second run planned no changes.
 - Ctrl+C during a full reload (target unchanged), schema drift and same-database protection, interval loop with clean shutdown
+- `-instant` on a copy of the VK Nex ERP database (117 instant, 71 transaction tables): master inserts, updates and deletes (including `item_master`, 10k rows with four expression unique indexes) arrived in 0.5–1.1 s on localhost, a `sale_bill` edit waited for the interval run, a column added to a master table and a new master table were applied by the interval run and then filled by the instant sync, the first start on a target without `vknex_sync`, and Ctrl+C with no sessions left behind. A full run afterwards found nothing to write.

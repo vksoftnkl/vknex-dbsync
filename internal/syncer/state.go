@@ -11,10 +11,27 @@ import (
 	"github.com/vksoftwares/vknex-dbsync/internal/schema"
 )
 
-// metaSQL creates the sync-state tables on the target when they are missing.
-func (s *Syncer) metaSQL() []string {
+// ensureMeta creates the sync-state tables on the target when they are
+// missing, in a short transaction of its own: created inside a sync
+// transaction, they would hold up the other kind of run until that commits.
+func (s *Syncer) ensureMeta(ctx context.Context, dst *pgx.Conn) error {
+	var ok bool
+	if err := dst.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL AND to_regclass($2) IS NOT NULL",
+		pg.QName(s.cfg.MetaSchema, "table_state"), pg.QName(s.cfg.MetaSchema, "run_log")).Scan(&ok); err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	tx, err := dst.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.Background())
 	m := pg.Ident(s.cfg.MetaSchema)
-	return []string{
+	stmts := []string{
+		// An interval run and Watch start together: let one create, the other wait.
+		fmt.Sprintf("SELECT pg_advisory_xact_lock(%d)", metaLockKey),
 		"CREATE SCHEMA IF NOT EXISTS " + m,
 		`CREATE TABLE IF NOT EXISTS ` + m + `.table_state (
 			schema_name    text        NOT NULL,
@@ -38,7 +55,7 @@ func (s *Syncer) metaSQL() []string {
 			return fmt.Errorf("prepare %s schema: %w", s.cfg.MetaSchema, err)
 		}
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (s *Syncer) loadState(ctx context.Context, q pg.Querier) (map[string]time.Time, error) {
@@ -60,7 +77,9 @@ func (s *Syncer) loadState(ctx context.Context, q pg.Querier) (map[string]time.T
 	return out, rows.Err()
 }
 
-func (s *Syncer) saveState(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, snapshot, started time.Time, st *runStats) error {
+// saveState records the watermark of every table of the run and the run
+// itself; mode is the -mode, or "instant" for a run of Watch.
+func (s *Syncer) saveState(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, mode string, snapshot, started time.Time, st *runStats) error {
 	q := fmt.Sprintf(`INSERT INTO %s (schema_name, table_name, last_synced_at) VALUES ($1, $2, $3)
 		ON CONFLICT (schema_name, table_name) DO UPDATE SET last_synced_at = EXCLUDED.last_synced_at, updated_at = now()`,
 		pg.QName(s.cfg.MetaSchema, "table_state"))
@@ -70,7 +89,7 @@ func (s *Syncer) saveState(ctx context.Context, tx pgx.Tx, tables map[string]*sc
 	}
 	batch.Queue(fmt.Sprintf(`INSERT INTO %s (mode, snapshot_at, started_at, finished_at, tables, rows_read, rows_written, rows_deleted)
 		VALUES ($1, $2, $3, clock_timestamp(), $4, $5, $6, $7)`, pg.QName(s.cfg.MetaSchema, "run_log")),
-		s.cfg.Mode, snapshot, started, st.Tables, st.Copied, st.Upserted, st.Deleted)
+		mode, snapshot, started, st.Tables, st.Copied, st.Upserted, st.Deleted)
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("save sync state: %w", err)
 	}

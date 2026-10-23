@@ -72,7 +72,7 @@ func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tab
 			}
 			for _, u := range t.Uniques {
 				tag, err := dst.Exec(ctx, fmt.Sprintf("DELETE FROM %s d WHERE NOT EXISTS (SELECT 1 FROM %s k WHERE %s) AND EXISTS (%s)",
-					t.QName(), keysOf[name], matchCols(t.PK, "k", "d"), uniqueMatchSQL(u, stageOf[name])))
+					t.QName(), keysOf[name], matchCols(t.PK, "k", "d"), uniqueMatchSQL(t, u, stageOf[name])))
 				if err != nil {
 					return fmt.Errorf("table %s: clear unique-key conflicts: %w", name, hint(err))
 				}
@@ -88,7 +88,7 @@ func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tab
 				// Such a target row is staged, so remove it now and let step 3 write it back.
 				// Only without triggers: a cascading foreign key would take its children along.
 				tag, err = dst.Exec(ctx, fmt.Sprintf("DELETE FROM %s d WHERE EXISTS (SELECT 1 FROM %s s0 WHERE %s) AND EXISTS (%s AND NOT (%s))",
-					t.QName(), stageOf[name], matchCols(t.PK, "s0", "d"), uniqueMatchSQL(u, stageOf[name]), matchCols(t.PK, "s", "d")))
+					t.QName(), stageOf[name], matchCols(t.PK, "s0", "d"), uniqueMatchSQL(t, u, stageOf[name]), matchCols(t.PK, "s", "d")))
 				if err != nil {
 					return fmt.Errorf("table %s: clear unique-key conflicts: %w", name, hint(err))
 				}

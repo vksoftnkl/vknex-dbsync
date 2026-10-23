@@ -77,14 +77,36 @@ func selectExprs(t *schema.Table, nullBreak bool) []string {
 	return out
 }
 
-// uniqueMatchSQL selects the staged rows that would collide with target row d
-// on unique index u. Expression keys and partial-index predicates are
-// evaluated against each row through a LATERAL (SELECT row.*) so the index
-// text can be used as printed.
-func uniqueMatchSQL(u schema.UniqueKey, stage string) string {
+// uniqueMatchSQL selects the staged rows (alias s, with t's primary key) that
+// would collide with target row d of t on unique index u.
+func uniqueMatchSQL(t *schema.Table, u schema.UniqueKey, stage string) string {
 	if u.Plain() {
 		return fmt.Sprintf("SELECT 1 FROM %s s WHERE %s", stage, matchCols(u.Cols, "s", "d"))
 	}
+	if u.Ops == nil && u.NullsDistinct {
+		// Expression keys and partial-index predicates are computed on both
+		// sides as the index prints them, then joined on equality, which hashes;
+		// row d is found again by its primary key.
+		side := func(from string) string {
+			keys := make([]string, len(u.Exprs))
+			for i, e := range u.Exprs {
+				keys[i] = fmt.Sprintf("(%s) AS _k%d", e, i)
+			}
+			q := fmt.Sprintf("SELECT %s, %s FROM %s", pg.IdentList(t.PK, ""), strings.Join(keys, ", "), from)
+			if u.Pred != "" {
+				q += " WHERE " + u.Pred
+			}
+			return q
+		}
+		conds := make([]string, len(u.Exprs))
+		for i := range u.Exprs {
+			conds[i] = fmt.Sprintf("s._k%d = dv._k%d", i, i)
+		}
+		return fmt.Sprintf("SELECT 1 FROM (%s) s JOIN (%s) dv ON %s WHERE %s",
+			side(stage), side(t.QName()), strings.Join(conds, " AND "), matchCols(t.PK, "dv", "d"))
+	}
+	// EXCLUDE operators and NULLS NOT DISTINCT do not hash: evaluate the keys
+	// against each pair of rows through a LATERAL (SELECT row.*) instead.
 	op := "="
 	if !u.NullsDistinct {
 		op = "IS NOT DISTINCT FROM"
