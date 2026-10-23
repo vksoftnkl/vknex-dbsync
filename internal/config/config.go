@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,6 +35,9 @@ type Config struct {
 	MarkTxn         bool
 	Instant         bool
 	TxnTables       []string
+	TableMaster     string                   // "schema.table" classifying the tables, e.g. public.db_table_master
+	InstantKinds    []string                 // upper case
+	KindIntervals   map[string]time.Duration // upper-case kind -> how often the interval runs move it
 	DryRun          bool
 	Yes             bool
 	Interval        time.Duration
@@ -41,6 +46,14 @@ type Config struct {
 	MetaSchema      string
 	LogJSON         bool
 	LogFile         string
+	UI              string   // host:port of the status page served while running with -interval; "" = none
+	MailTo          []string // mailed when a sync fails, works again or the program stops; empty = no mail
+	MailFrom        string
+	SMTPAddr        string // host:port of the mail server
+	SMTPUser        string
+	SMTPPassword    string
+	MailRepeat      time.Duration // while a sync keeps failing, mail again at most this often; 0 = once
+	MailTest        bool
 }
 
 // Load reads .env, then the flags (defaulting to the environment), and checks the result.
@@ -67,8 +80,11 @@ func Load(args []string) (*Config, error) {
 	fs.BoolVar(&c.DDLDrop, "ddl-drop", envBool("SYNC_DDL_DROP", false), "with -ddl, also drop target tables, partitions and columns the source no longer has; their data is lost [SYNC_DDL_DROP]")
 	fs.BoolVar(&c.MarkSynced, "mark-synced", envBool("SYNC_MARK_SYNCED", false), "after a run, set each table's sync column (…sync_date) on target and source for the rows that were waiting (NULL), and sdr_sync_date in public.sync_deleted_rows [SYNC_MARK_SYNCED]")
 	fs.BoolVar(&c.MarkTxn, "mark-txn", envBool("SYNC_MARK_TXN", true), "with -mark-synced, also set the sync column of the -txn-tables; false = only the master tables (the others) [SYNC_MARK_TXN]")
-	fs.BoolVar(&c.Instant, "instant", envBool("SYNC_INSTANT", false), "mirror every table not in -txn-tables within seconds of a change on the source; -txn-tables follow -interval [SYNC_INSTANT]")
-	txn := fs.String("txn-tables", env("SYNC_TXN_TABLES", ""), "with -instant: comma-separated tables (name or schema.name) synced only every -interval [SYNC_TXN_TABLES]")
+	fs.BoolVar(&c.Instant, "instant", envBool("SYNC_INSTANT", false), "mirror the master tables (see -table-master) within seconds of a change on the source; the others follow -interval [SYNC_INSTANT]")
+	txn := fs.String("txn-tables", env("SYNC_TXN_TABLES", ""), "with -instant and an empty -table-master: comma-separated tables (name or schema.name) synced only every -interval, all others are instant [SYNC_TXN_TABLES]")
+	fs.StringVar(&c.TableMaster, "table-master", env("SYNC_TABLE_MASTER", "public.db_table_master"), "source table (schema.name) listing the tables by dtm_kind, read on every run: -instant mirrors the -instant-kinds tables, all others follow -interval (or -kind-intervals); empty = use -txn-tables [SYNC_TABLE_MASTER]")
+	kinds := fs.String("instant-kinds", env("SYNC_INSTANT_KINDS", "MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM"), "with -table-master: comma-separated dtm_kind values mirrored within seconds [SYNC_INSTANT_KINDS]")
+	every := fs.String("kind-intervals", env("SYNC_KIND_INTERVALS", "LOG:1h"), "with -table-master: comma-separated kind:interval for kinds the interval runs move less often than -interval [SYNC_KIND_INTERVALS]")
 	fs.BoolVar(&c.DryRun, "dry-run", envBool("SYNC_DRY_RUN", false), "show the plan and row counts, change nothing [SYNC_DRY_RUN]")
 	fs.BoolVar(&c.Yes, "yes", envBool("SYNC_YES", false), "required for -mode full (it truncates target tables) [SYNC_YES]")
 	fs.DurationVar(&c.Interval, "interval", envDur("SYNC_INTERVAL", 0), "repeat every interval (e.g. 5m); 0 = run once [SYNC_INTERVAL]")
@@ -77,6 +93,14 @@ func Load(args []string) (*Config, error) {
 	fs.StringVar(&c.MetaSchema, "meta-schema", env("SYNC_META_SCHEMA", "vknex_sync"), "schema on target holding sync state [SYNC_META_SCHEMA]")
 	fs.BoolVar(&c.LogJSON, "log-json", envBool("SYNC_LOG_JSON", false), "JSON logs [SYNC_LOG_JSON]")
 	fs.StringVar(&c.LogFile, "log-file", env("SYNC_LOG_FILE", ""), "append the logs to this file instead of stdout; without a console they go to vknex-dbsync.log next to the binary [SYNC_LOG_FILE]")
+	fs.StringVar(&c.UI, "ui", env("SYNC_UI", "127.0.0.1:7645"), "with -interval: serve the status page at this host:port (open http://127.0.0.1:7645/); empty = no page [SYNC_UI]")
+	mailTo := fs.String("mail-to", env("SYNC_MAIL_TO", ""), "comma-separated addresses mailed when a sync fails, works again or the program stops; empty = no mail [SYNC_MAIL_TO]")
+	fs.StringVar(&c.MailFrom, "mail-from", env("SYNC_MAIL_FROM", ""), "sender address; default -smtp-user [SYNC_MAIL_FROM]")
+	fs.StringVar(&c.SMTPAddr, "smtp", env("SYNC_SMTP", ""), "mail server host:port, e.g. smtp.gmail.com:587 (STARTTLS) or :465 (TLS) [SYNC_SMTP]")
+	fs.StringVar(&c.SMTPUser, "smtp-user", env("SYNC_SMTP_USER", ""), "mail server login; empty = none [SYNC_SMTP_USER]")
+	fs.StringVar(&c.SMTPPassword, "smtp-password", env("SYNC_SMTP_PASSWORD", ""), "mail server password (Gmail: an app password) [SYNC_SMTP_PASSWORD]")
+	fs.DurationVar(&c.MailRepeat, "mail-repeat", envDur("SYNC_MAIL_REPEAT", time.Hour), "while a sync keeps failing, mail again at most this often; 0 = once per outage [SYNC_MAIL_REPEAT]")
+	fs.BoolVar(&c.MailTest, "mail-test", envBool("SYNC_MAIL_TEST", false), "send a test mail to -mail-to and exit [SYNC_MAIL_TEST]")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -87,7 +111,15 @@ func Load(args []string) (*Config, error) {
 	c.Exclude = splitList(*exclude)
 	c.UpdatedCols = splitList(*updated)
 	c.TxnTables = splitList(*txn)
+	c.InstantKinds = splitList(strings.ToUpper(*kinds))
+	ki, err := parseKindIntervals(*every)
+	if err != nil {
+		return nil, err
+	}
+	c.KindIntervals = ki
+	c.TableMaster = strings.TrimSpace(c.TableMaster)
 	c.Mode = strings.ToLower(strings.TrimSpace(c.Mode))
+	c.MailTo = splitList(*mailTo)
 
 	switch {
 	case len(c.Schemas) == 0:
@@ -106,20 +138,88 @@ func Load(args []string) (*Config, error) {
 		return nil, errors.New("-mode full TRUNCATES every synced table on the target; re-run with -yes to confirm (take an RDS snapshot first)")
 	case c.Instant && c.Interval <= 0 && !c.DryRun:
 		return nil, errors.New("-instant needs -interval: the -txn-tables are synced on that schedule")
+	case c.TableMaster != "" && len(c.InstantKinds) == 0:
+		return nil, errors.New("-table-master needs at least one -instant-kinds value, e.g. MASTER")
+	}
+	for kind := range c.KindIntervals {
+		if slices.Contains(c.InstantKinds, kind) {
+			return nil, fmt.Errorf("-kind-intervals gives %s an interval, but -instant-kinds mirrors it instantly", kind)
+		}
+	}
+	if err := c.checkMail(); err != nil {
+		return nil, err
 	}
 	return c, nil
 }
 
-// Txn reports whether a table is one of -txn-tables ("table" or "schema.table"),
-// which -instant leaves to the -interval runs.
-func (c *Config) Txn(schema, name string) bool {
+// checkMail fills in and checks the mail settings; without -mail-to nothing is
+// mailed. Addresses may carry a name ("Name <a@b>"); only the address is kept.
+func (c *Config) checkMail() error {
+	if len(c.MailTo) == 0 {
+		if c.MailTest {
+			return errors.New("-mail-test needs -mail-to")
+		}
+		return nil
+	}
+	if c.SMTPAddr == "" {
+		return errors.New("-mail-to needs -smtp, the mail server's host:port (e.g. smtp.gmail.com:587)")
+	}
+	if _, _, err := net.SplitHostPort(c.SMTPAddr); err != nil {
+		return fmt.Errorf("-smtp must be host:port, e.g. smtp.gmail.com:587: %w", err)
+	}
+	if c.MailFrom == "" {
+		c.MailFrom = c.SMTPUser
+	}
+	from, err := mail.ParseAddress(c.MailFrom)
+	if err != nil {
+		return fmt.Errorf("-mail-from %q is not an address (set it when -smtp-user is a login name, not an address)", c.MailFrom)
+	}
+	c.MailFrom = from.Address
+	for i, to := range c.MailTo {
+		a, err := mail.ParseAddress(to)
+		if err != nil {
+			return fmt.Errorf("-mail-to %q is not an address", to)
+		}
+		c.MailTo[i] = a.Address
+	}
+	return nil
+}
+
+// parseKindIntervals reads -kind-intervals, e.g. "LOG:1h,AUDIT:24h".
+func parseKindIntervals(s string) (map[string]time.Duration, error) {
+	out := map[string]time.Duration{}
+	for _, p := range splitList(s) {
+		kind, every, ok := strings.Cut(p, ":")
+		kind = strings.ToUpper(strings.TrimSpace(kind))
+		d, err := time.ParseDuration(strings.TrimSpace(every))
+		if !ok || kind == "" || err != nil || d <= 0 {
+			return nil, fmt.Errorf("-kind-intervals: %q is not kind:interval, e.g. LOG:1h", p)
+		}
+		out[kind] = d
+	}
+	return out, nil
+}
+
+// TxnListed reports whether a table is one of -txn-tables ("table" or
+// "schema.table"), which -instant leaves to the -interval runs when
+// -table-master is empty.
+func (c *Config) TxnListed(schema, name string) bool {
 	return slices.Contains(c.TxnTables, name) || slices.Contains(c.TxnTables, schema+"."+name)
 }
 
+// TableMasterName splits -table-master; a bare name is in public.
+func (c *Config) TableMasterName() (schema, name string) {
+	if s, n, ok := strings.Cut(c.TableMaster, "."); ok {
+		return s, n
+	}
+	return "public", c.TableMaster
+}
+
 // Marked reports whether -mark-synced sets a table's sync column: every synced
-// table, or with -mark-txn=false only those outside -txn-tables.
-func (c *Config) Marked(schema, name string) bool {
-	return c.MarkSynced && (c.MarkTxn || !c.Txn(schema, name))
+// table, or with -mark-txn=false only those -instant mirrors (txn false, see
+// schema.Table.Txn).
+func (c *Config) Marked(txn bool) bool {
+	return c.MarkSynced && (c.MarkTxn || !txn)
 }
 
 // Wanted applies -include / -exclude, which accept "table" or "schema.table".

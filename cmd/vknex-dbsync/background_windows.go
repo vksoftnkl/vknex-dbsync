@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os/exec"
 	"syscall"
 	"unsafe"
 )
@@ -16,6 +17,11 @@ func alreadyRunning() bool {
 	name, _ := syscall.UTF16PtrFromString(`Local\vknex-dbsync`)
 	h, _, err := createMutex.Call(0, 0, uintptr(unsafe.Pointer(name)))
 	return h != 0 && err == syscall.ERROR_ALREADY_EXISTS
+}
+
+// openBrowser opens url in the default browser, like a double-clicked link.
+func openBrowser(url string) error {
+	return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 }
 
 // alert shows msg in a message box.

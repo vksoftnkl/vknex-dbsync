@@ -3,9 +3,19 @@ package pg
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 )
+
+// Describe prints user@host:port/db of a URL, without the password.
+func Describe(url string) string {
+	c, err := pgx.ParseConfig(url)
+	if err != nil {
+		return "(unparseable URL)"
+	}
+	return fmt.Sprintf("%s@%s:%d/%s", c.User, c.Host, c.Port, c.Database)
+}
 
 // Querier is satisfied by *pgx.Conn and pgx.Tx.
 type Querier interface {

@@ -15,13 +15,17 @@ import (
 
 	"github.com/vksoftwares/vknex-dbsync/internal/pg"
 	"github.com/vksoftwares/vknex-dbsync/internal/schema"
+	"github.com/vksoftwares/vknex-dbsync/internal/status"
 )
 
 // With -instant, every synced table outside -txn-tables is mirrored within
-// seconds of a change. A statement trigger on the source (notifyTrigger) sends
-// the table's name on notifyChannel when a transaction that changed it commits;
-// Watch listens there and runs a small incremental sync of just the tables
-// named. The -txn-tables keep following -interval in RunOnce.
+// seconds of a change; with -table-master, only the tables of -instant-kinds
+// (schema.Select). A statement trigger on the source (notifyTrigger, also on
+// every partition of a partitioned table) sends the table's name on
+// notifyChannel when a transaction that changed it commits; Watch listens
+// there and runs a small incremental sync of just the tables named. The
+// interval tables (Table.Txn) keep following -interval in RunOnce.
+// -table-master carries the trigger too: a change there sorts the tables again.
 const (
 	notifyChannel  = "vknex_sync"
 	notifyTrigger  = "zz_vknex_sync_notify"
@@ -42,6 +46,8 @@ func (s *Syncer) Watch(ctx context.Context) {
 			return
 		}
 		s.log.Error("instant sync stopped; restarting", "err", err, "in", retryMax.String())
+		s.notify.Failed("instant sync", err)
+		s.Status.InstantDown(err, retryMax)
 		select {
 		case <-ctx.Done():
 			return
@@ -56,6 +62,7 @@ type watcher struct {
 	src, dst *pgx.Conn       // reopened after an error
 	tables   map[string]bool // every synced table
 	instant  map[string]bool // the tables Watch mirrors
+	master   string          // key of -table-master, "" without it
 	paused   bool            // waiting for an interval run (errBusy)
 }
 
@@ -63,6 +70,9 @@ func (s *Syncer) watch(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	w := &watcher{s: s}
+	if s.cfg.TableMaster != "" {
+		w.master = schema.Key(s.cfg.TableMasterName())
+	}
 	defer w.close()
 
 	listen, err := pg.Connect(ctx, s.cfg.SourceURL)
@@ -104,7 +114,7 @@ func (s *Syncer) watch(ctx context.Context) error {
 		return err
 	}
 	for _, entry := range s.cfg.TxnTables {
-		found := false
+		found := w.master != "" // then -txn-tables is ignored (see main)
 		for key := range w.tables {
 			_, tbl, _ := strings.Cut(key, ".")
 			found = found || entry == key || entry == tbl
@@ -113,15 +123,40 @@ func (s *Syncer) watch(ctx context.Context) error {
 			s.log.Warn("-txn-tables names a table that is not synced", "table", entry)
 		}
 	}
-	s.log.Info("instant sync started", "instant_tables", len(w.instant), "txn_tables", len(w.tables)-len(w.instant))
+	started := []any{"instant_tables", len(w.instant), "txn_tables", len(w.tables) - len(w.instant)}
+	if w.master != "" {
+		started = append(started, "table_master", w.master, "instant_kinds", strings.Join(s.cfg.InstantKinds, ","))
+	}
+	s.log.Info("instant sync started", started...)
+	s.Status.InstantStarted(len(w.instant), len(w.tables)-len(w.instant))
 
 	pending := maps.Clone(w.instant) // catch up first
 	note := func(name string) error {
-		if !w.tables[name] {
+		if !w.tables[name] || name == w.master {
 			// New since the last look (an interval run hands over tables it
-			// just created): read the table list again.
+			// just created), or -table-master changed: read the table list
+			// again. A table that just became instant catches up at once, as
+			// the interval runs no longer move it.
+			was := w.instant
 			if err := w.refresh(ctx); err != nil {
 				return err
+			}
+			var gained, lost []string
+			for key := range w.instant {
+				if !was[key] {
+					gained = append(gained, key)
+					pending[key] = true
+				}
+			}
+			for key := range was {
+				if w.tables[key] && !w.instant[key] {
+					lost = append(lost, key)
+				}
+			}
+			if len(gained)+len(lost) > 0 {
+				slices.Sort(gained)
+				slices.Sort(lost)
+				s.log.Info("instant tables changed", "now_instant", listOf(gained), "now_interval", listOf(lost))
 			}
 		}
 		if w.instant[name] {
@@ -135,6 +170,7 @@ func (s *Syncer) watch(ctx context.Context) error {
 	failed := map[string]bool{} // retried when retry fires
 	var solo []string           // tried one at a time, in between new changes
 	var settle, retry <-chan time.Time
+	var retryAt time.Time // when retry fires
 	backoff := retryMin
 	for {
 		// Changes that came in during the last run go first.
@@ -168,7 +204,7 @@ func (s *Syncer) watch(ctx context.Context) error {
 			}
 			continue
 		case <-retry:
-			retry = nil
+			retry, retryAt = nil, time.Time{}
 			maps.Copy(pending, failed)
 			clear(failed)
 			continue
@@ -180,6 +216,7 @@ func (s *Syncer) watch(ctx context.Context) error {
 			names, solo = solo[:1], solo[1:]
 		}
 
+		s.Status.InstantSyncing(names)
 		err := w.sync(ctx, names)
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -206,11 +243,12 @@ func (s *Syncer) watch(ctx context.Context) error {
 		case len(failed) == 0:
 			backoff = retryMin
 		case retry == nil:
-			retry = time.After(backoff)
+			retry, retryAt = time.After(backoff), time.Now().Add(backoff)
 			if !errors.Is(err, errBusy) { // a schema-change run ends soon: keep checking
 				backoff = min(2*backoff, retryMax)
 			}
 		}
+		s.Status.InstantSettled(names, err, slices.Concat(slices.Sorted(maps.Keys(failed)), solo), retryAt, w.paused)
 	}
 }
 
@@ -252,6 +290,7 @@ func (w *watcher) sync(ctx context.Context, names []string) error {
 			w.s.log.Info("instant sync resumed")
 			w.paused = false
 		}
+		w.s.notify.Recovered("instant sync")
 	case errors.Is(err, errBusy):
 		if !w.paused {
 			w.s.log.Info("instant sync paused: an interval run is applying schema changes and moving every table", "tables", listOf(names))
@@ -274,6 +313,7 @@ func (w *watcher) report(ctx context.Context, names []string, err error) {
 		return
 	}
 	w.s.log.Error("instant sync failed; will retry", "tables", listOf(names), "err", err)
+	w.s.notify.Failed("instant sync", err)
 }
 
 // listOf names a few tables for a log line; a catch-up run has them all.
@@ -315,9 +355,13 @@ func (w *watcher) runTables(ctx context.Context, names []string) error {
 	}); err != nil {
 		return fmt.Errorf("source schema: %w", err)
 	}
+	kinds, err := schema.LoadKinds(ctx, srcTx, cfg)
+	if err != nil {
+		return err
+	}
 	want := toSet(names)
-	tables := schema.Subset(schema.Select(srcAll, cfg), func(t *schema.Table) bool {
-		return want[schema.Key(t.Schema, t.Name)] && !cfg.Txn(t.Schema, t.Name)
+	tables := schema.Subset(schema.Select(srcAll, cfg, kinds), func(t *schema.Table) bool {
+		return want[schema.Key(t.Schema, t.Name)] && !t.Txn // still instant at this snapshot
 	})
 	if len(tables) == 0 {
 		return nil // dropped on the source since the notification
@@ -366,6 +410,7 @@ func (w *watcher) runTables(ctx context.Context, names []string) error {
 		"rows_written", st.Upserted,
 		"rows_deleted", st.Deleted,
 		"took", time.Since(started).Round(time.Millisecond).String())
+	s.Status.InstantSynced(status.InstantRun{Tables: order, At: time.Now().UnixMilli(), TookMs: time.Since(started).Milliseconds(), RowsWritten: st.Upserted, RowsDeleted: st.Deleted})
 
 	if err := srcTx.Rollback(ctx); err != nil {
 		return err
@@ -379,8 +424,8 @@ func (w *watcher) runTables(ctx context.Context, names []string) error {
 }
 
 // refresh reads which tables are synced and which of them are instant, and
-// makes sure that exactly the instant tables carry the notify trigger on the
-// source.
+// makes sure that exactly the instant tables (and -table-master) carry the
+// notify trigger on the source.
 func (w *watcher) refresh(ctx context.Context) error {
 	cfg := w.s.cfg
 	if err := w.openSource(ctx); err != nil {
@@ -403,13 +448,42 @@ func (w *watcher) refresh(ctx context.Context) error {
 	}); err != nil {
 		return fmt.Errorf("source schema: %w", err)
 	}
-	selected := schema.Select(all, cfg)
+	kinds, err := schema.LoadKinds(ctx, tx, cfg)
+	if err != nil {
+		return err
+	}
+	selected := schema.Select(all, cfg, kinds)
 	w.tables, w.instant = map[string]bool{}, map[string]bool{}
-	for name, t := range selected {
+	// The relations that carry the trigger, each with the table its
+	// notification names. A statement on a partition fires only the
+	// partition's own trigger, so a partition names its partitioned table
+	// ("" = the relation itself).
+	notified := map[string]string{}
+	if w.master != "" {
+		notified[w.master] = ""
+	}
+	var crossing []string // instant table -> interval table it references
+	for _, name := range slices.Sorted(maps.Keys(selected)) {
+		t := selected[name]
 		w.tables[name] = true
-		if !cfg.Txn(t.Schema, t.Name) {
-			w.instant[name] = true
+		if t.Txn {
+			continue
 		}
+		w.instant[name] = true
+		notified[name] = ""
+		for _, p := range t.Partitions {
+			notified[p.Key] = name
+		}
+		for _, fk := range t.FKs {
+			if ref := name + " -> " + fk.Parent; selected[fk.Parent].Txn && !slices.Contains(crossing, ref) {
+				crossing = append(crossing, ref)
+			}
+		}
+	}
+	if len(crossing) > 0 {
+		w.s.log.Warn("instant tables reference interval tables: a new row can reach the live DB before the row it points at, "+
+			"until the next interval run moves that one (without -disable-triggers its instant sync fails and retries until then)",
+			"references", strings.Join(crossing, ","))
 	}
 
 	fn := pg.QName(cfg.MetaSchema, notifyFunction)
@@ -417,7 +491,7 @@ func (w *watcher) refresh(ctx context.Context) error {
 		"CREATE SCHEMA IF NOT EXISTS " + pg.Ident(cfg.MetaSchema),
 		fmt.Sprintf(`CREATE OR REPLACE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  PERFORM pg_notify(%s, TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME);
+  PERFORM pg_notify(%s, COALESCE(TG_ARGV[0], TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME));
   RETURN NULL;
 END $$`, fn, pg.Literal(notifyChannel)),
 	} {
@@ -438,7 +512,7 @@ END $$`, fn, pg.Literal(notifyChannel)),
 	}
 	var added, removed int
 	for _, name := range has {
-		if w.instant[name] {
+		if _, ok := notified[name]; ok {
 			continue
 		}
 		ns, tbl, _ := strings.Cut(name, ".")
@@ -447,12 +521,17 @@ END $$`, fn, pg.Literal(notifyChannel)),
 		}
 		removed++
 	}
-	for _, name := range slices.Sorted(maps.Keys(w.instant)) {
+	for _, name := range slices.Sorted(maps.Keys(notified)) {
 		if slices.Contains(has, name) {
 			continue
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf("CREATE TRIGGER %s AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s()",
-			pg.Ident(notifyTrigger), selected[name].QName(), fn)); err != nil {
+		arg := ""
+		if root := notified[name]; root != "" {
+			arg = pg.Literal(root)
+		}
+		ns, tbl, _ := strings.Cut(name, ".") // -table-master need not be a synced table
+		if _, err := tx.Exec(ctx, fmt.Sprintf("CREATE TRIGGER %s AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s(%s)",
+			pg.Ident(notifyTrigger), pg.QName(ns, tbl), fn, arg)); err != nil {
 			return fmt.Errorf("table %s: install the change notification: %w", name, err)
 		}
 		added++

@@ -7,8 +7,10 @@
 //	vknex-dbsync                             # one incremental sync
 //	vknex-dbsync -interval 5m                # keep syncing every 5 minutes
 //	vknex-dbsync -mode full -yes             # truncate + reload every table
-//	vknex-dbsync -interval 5m -instant -txn-tables sales.sale_bill,...
-//	                                         # those every 5 minutes, all other tables within seconds
+//	vknex-dbsync -mail-test                  # check the -mail-to settings with a test mail
+//	vknex-dbsync -interval 5m -instant       # by dtm_kind in public.db_table_master: masters, settings,
+//	                                         # ledgers, balances within seconds, LOG every hour,
+//	                                         # TRANSACTION and the rest every 5 minutes
 package main
 
 import (
@@ -16,16 +18,20 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vksoftwares/vknex-dbsync/internal/config"
+	"github.com/vksoftwares/vknex-dbsync/internal/notify"
+	"github.com/vksoftwares/vknex-dbsync/internal/pg"
+	"github.com/vksoftwares/vknex-dbsync/internal/status"
 	"github.com/vksoftwares/vknex-dbsync/internal/syncer"
 )
 
@@ -33,13 +39,16 @@ func main() {
 	// The Windows build made with -H=windowsgui has no console when it is
 	// double-clicked: it logs to a file and shows startup errors in a message box.
 	background := !usable(os.Stdout)
-	if background && alreadyRunning() {
-		fatal(background, "vknex-dbsync is already running in the background.\n\nTo stop it: Task Manager > Details > vknex-dbsync.exe > End task.", 0)
-	}
-
 	cfg, err := config.Load(os.Args[1:])
 	if err != nil {
 		fatal(background, "config: "+err.Error(), 2)
+	}
+	if background && alreadyRunning() {
+		// A second double-click opens the status page of the running copy.
+		if cfg.UI != "" && cfg.Interval > 0 && openBrowser(status.URL(cfg.UI)) == nil {
+			return
+		}
+		fatal(background, "vknex-dbsync is already running in the background.\n\nTo stop it: Task Manager > Details > vknex-dbsync.exe > End task.", 0)
 	}
 
 	out := io.Writer(os.Stdout)
@@ -54,6 +63,11 @@ func main() {
 		}
 		out = f
 	}
+	st := status.New() // what the status page (-ui) shows; it also keeps the latest log lines
+	if logFile != "" {
+		st.Log.SeedFromFile(logFile, 300) // what happened before this start
+	}
+	out = io.MultiWriter(out, st.Log)
 
 	var handler slog.Handler = slog.NewTextHandler(out, &slog.HandlerOptions{Level: slog.LevelInfo})
 	if cfg.LogJSON {
@@ -61,12 +75,22 @@ func main() {
 	}
 	log := slog.New(handler)
 
+	n := notify.New(cfg, logFile, log) // nil without -mail-to
+	defer mailCrash(log, n)
+	if cfg.MailTest {
+		if err := n.Test(); err != nil {
+			fatal(background, "mail test: "+err.Error(), 2)
+		}
+		log.Info("test mail sent", "to", strings.Join(cfg.MailTo, ","))
+		return
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	log.Info("vknex-dbsync starting",
-		"source", describe(cfg.SourceURL),
-		"target", describe(cfg.TargetURL),
+		"source", pg.Describe(cfg.SourceURL),
+		"target", pg.Describe(cfg.TargetURL),
 		"mode", cfg.Mode,
 		"schemas", strings.Join(cfg.Schemas, ","),
 		"deletes", cfg.Deletes,
@@ -75,13 +99,23 @@ func main() {
 		"mark_synced", cfg.MarkSynced,
 		"mark_txn", cfg.MarkTxn,
 		"interval", cfg.Interval.String(),
-		"instant", cfg.Instant)
+		"instant", cfg.Instant,
+		"table_master", cfg.TableMaster,
+		"instant_kinds", strings.Join(cfg.InstantKinds, ","),
+		"kind_intervals", kindIntervals(cfg),
+		"mail_to", strings.Join(cfg.MailTo, ","))
 
-	s := syncer.New(cfg, log)
+	if cfg.TableMaster != "" && len(cfg.TxnTables) > 0 {
+		log.Warn("SYNC_TXN_TABLES is ignored: "+cfg.TableMaster+" decides which tables are instant; remove it from .env", "tables", len(cfg.TxnTables))
+	}
+
+	s := syncer.New(cfg, log, n)
+	s.Status = st
 
 	if cfg.Interval <= 0 {
 		if err := s.RunOnce(ctx); err != nil {
 			log.Error("sync failed", "err", err)
+			n.Failed("sync", err)
 			os.Exit(1)
 		}
 		return
@@ -90,34 +124,69 @@ func main() {
 	if cfg.Mode == "full" {
 		log.Warn("full mode with -interval truncates and reloads the target on every run")
 	}
+	if cfg.UI != "" && !cfg.DryRun {
+		if url, err := status.Start(ctx, cfg.UI, st, cfg, logFile, log); err != nil {
+			log.Warn("status page not available", "addr", cfg.UI, "err", err)
+		} else {
+			log.Info("status page", "url", url)
+		}
+	}
 	if cfg.Instant && !cfg.DryRun {
+		st.InstantEnabled()
 		watched := make(chan struct{})
 		go func() {
 			defer close(watched)
+			defer mailCrash(log, n)
 			s.Watch(ctx)
 		}()
-		defer func() { <-watched }() // let a running instant sync roll back before exiting
+		// let a running instant sync roll back before exiting; stop() first so
+		// that a panic below (ctx still live) does not wait for it forever
+		defer func() { stop(); <-watched }()
+	}
+	stopped := func() {
+		log.Info("stopped")
+		n.Stopped("It was told to stop: Ctrl-C, systemctl stop, the desktop icon's Stop or Task Manager > End task. Nothing is synced until it is started again.")
 	}
 	for {
 		runStart := time.Now()
 		if err := s.RunOnce(ctx); err != nil {
 			if ctx.Err() != nil {
-				log.Info("stopped")
+				stopped()
 				return
 			}
 			log.Error("sync failed; will retry next interval", "err", err)
+			n.Failed("sync", err)
+		} else {
+			n.Recovered("sync")
 		}
 		wait := cfg.Interval - time.Since(runStart)
 		if wait < time.Second {
 			wait = time.Second
 		}
+		st.NextRun(time.Now().Add(wait))
 		select {
 		case <-ctx.Done():
-			log.Info("stopped")
+			stopped()
 			return
 		case <-time.After(wait):
+		case <-st.Trigger():
+			log.Info("sync started from the status page")
 		}
 	}
+}
+
+// mailCrash, deferred in main and in the goroutines it starts, logs and mails
+// a panic before ending the program. Exit code 1, not the 2 of an unrecovered
+// panic: 2 means a bad .env, and the systemd unit does not restart after it.
+func mailCrash(log *slog.Logger, n *notify.Notifier) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	stack := string(debug.Stack())
+	log.Error("crashed", "panic", r, "stack", stack)
+	n.Stopped(fmt.Sprintf("It crashed. On Linux the service starts it again after 30 s; on Windows start it again by hand.\n\npanic: %v\n\n%s", r, stack))
+	os.Exit(1)
 }
 
 // usable reports whether f can be written to. A GUI-subsystem process started
@@ -149,11 +218,11 @@ func besideBinary(name string) string {
 	return filepath.Join(filepath.Dir(exe), name)
 }
 
-// describe prints host:port/db without the password.
-func describe(url string) string {
-	c, err := pgx.ParseConfig(url)
-	if err != nil {
-		return "(unparseable URL)"
+// kindIntervals prints -kind-intervals, e.g. "LOG:1h0m0s".
+func kindIntervals(cfg *config.Config) string {
+	var out []string
+	for _, kind := range slices.Sorted(maps.Keys(cfg.KindIntervals)) {
+		out = append(out, kind+":"+cfg.KindIntervals[kind].String())
 	}
-	return fmt.Sprintf("%s@%s:%d/%s", c.User, c.Host, c.Port, c.Database)
+	return strings.Join(out, ",")
 }

@@ -60,8 +60,29 @@ func (s *Syncer) plan(ctx context.Context, srcTx pgx.Tx, dst *pgx.Conn, tables m
 		if len(t.Break) > 0 {
 			how += "; cycle columns " + strings.Join(t.Break, ",") + " filled in a second pass"
 		}
-		s.log.Info("plan", "step", i+1, "table", name, "rows", n, "how", how, "copy_format", map[bool]string{true: "text", false: "binary"}[t.TextCopy])
+		attrs := []any{"step", i + 1, "table", name, "rows", n, "how", how, "copy_format", map[bool]string{true: "text", false: "binary"}[t.TextCopy]}
+		if s.cfg.Instant || s.cfg.TableMaster != "" {
+			attrs = append(attrs, "sync", s.schedule(t))
+		}
+		if s.cfg.TableMaster != "" {
+			attrs = append(attrs, "kind", t.Kind)
+		}
+		s.log.Info("plan", attrs...)
 	}
 	s.log.Info("DRY RUN total", "rows_to_read", total, "deletes", s.cfg.Deletes && s.cfg.Mode == "incremental")
 	return nil
+}
+
+// schedule says when a real run syncs t.
+func (s *Syncer) schedule(t *schema.Table) string {
+	every, own := s.cfg.KindIntervals[t.Kind]
+	switch {
+	case s.cfg.Instant && !t.Txn:
+		return "instant"
+	case own:
+		return "every " + every.String()
+	case s.cfg.Interval > 0:
+		return "every " + s.cfg.Interval.String()
+	}
+	return "each run"
 }

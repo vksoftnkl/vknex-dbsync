@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>VK Nex DB Sync</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f6fde'/%3E%3Cpath d='M10 16a6 6 0 0 1 10.4-4.1M22 16a6 6 0 0 1-10.4 4.1' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3Cpath d='M20.5 7.5v4.4h-4.4M11.5 24.5v-4.4h4.4' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--line:#e1e0d9;--border:rgba(11,11,11,.10);--tint:rgba(11,11,11,.04);
+  --good:#0ca30c;--good-ink:#006300;--warning:#fab219;--warning-ink:#7a5200;--serious:#ec835a;--serious-ink:#a1421c;--critical:#d03b3b;--critical-ink:#a52828;
+  --accent:#2f6fde;--accent-ink:#1f52ad;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0d0d0d;--surface:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#898781;--line:#2c2c2a;--border:rgba(255,255,255,.10);--tint:rgba(255,255,255,.05);
+  --good-ink:#2fc42f;--warning-ink:#fab219;--serious-ink:#ec835a;--critical-ink:#e86060;--accent:#4f86f0;--accent-ink:#8ab4ff;
+}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding:16px;max-width:1120px;margin:0 auto}
+h1{font-size:18px;margin:0;font-weight:650}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-bottom:12px}
+.brand{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0;flex-wrap:wrap}
+.logo{width:28px;height:28px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:18px;flex:none}
+.route{flex-basis:100%;color:var(--ink2);display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.route .arrow{color:var(--muted)}
+.meta{flex-basis:100%;color:var(--muted);font-size:12.5px;margin-top:-4px;word-break:break-word}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:3px 10px;border-radius:999px;font-weight:600;font-size:12.5px;border:1px solid var(--border);background:var(--surface);white-space:nowrap;color:var(--ink2)}
+.pill .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.pill.good{color:var(--good-ink)}.pill.good .dot{background:var(--good)}
+.pill.warning{color:var(--warning-ink)}.pill.warning .dot{background:var(--warning)}
+.pill.serious{color:var(--serious-ink)}.pill.serious .dot{background:var(--serious)}
+.pill.critical{color:var(--critical-ink)}.pill.critical .dot{background:var(--critical)}
+.pill.accent{color:var(--accent-ink)}.pill.accent .dot{background:var(--accent);animation:pulse .9s infinite alternate}
+@keyframes pulse{from{opacity:.3}to{opacity:1}}
+button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover{background:var(--tint)}
+button.primary{background:var(--accent);border-color:transparent;color:#fff;font-weight:600}
+button.primary:hover{filter:brightness(1.08)}
+button:disabled,button:disabled:hover{opacity:.5;cursor:default;filter:none;background:var(--surface)}
+button.primary:disabled{background:var(--accent)}
+.banner{border:1px solid var(--border);border-left:4px solid var(--critical);background:var(--surface);border-radius:8px;padding:10px 12px;margin-bottom:12px}
+.banner.warning{border-left-color:var(--warning)}.banner.serious{border-left-color:var(--serious)}
+.banner b{display:block}
+.banner .err{white-space:pre-wrap;word-break:break-word;margin:4px 0 8px;color:var(--ink2)}
+.banner .err:last-child{margin-bottom:0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;min-width:0}
+.tile .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.tile .value{font-size:26px;font-weight:650;line-height:1.2;margin:4px 0 3px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.tile .value.small{font-size:20px}
+.tile .sub{color:var(--ink2);font-size:12.5px;word-break:break-word}
+.ok{color:var(--good-ink)}.bad{color:var(--critical-ink)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px;overflow-x:auto}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:8px 12px;color:var(--ink2);margin-bottom:-1px;white-space:nowrap}
+.tabs button:hover{background:var(--tint)}
+.tabs button.active{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+.panel{display:none}.panel.active{display:block}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.toolbar input[type=search]{font:inherit;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);min-width:200px;flex:1 1 200px;max-width:360px}
+.toolbar label{display:inline-flex;align-items:center;gap:6px;color:var(--ink2)}
+.chip{border-radius:999px;padding:4px 11px;font-size:12.5px}
+.chip.active{background:var(--accent);color:#fff;border-color:transparent}
+.count{color:var(--muted);font-size:12.5px;margin-left:auto}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.scroll{max-height:70vh;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 10px;border-top:1px solid var(--line);vertical-align:top}
+thead th{border-top:0;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;background:var(--surface);position:sticky;top:0;z-index:1}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.nowrap{white-space:nowrap}
+.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11.5px;font-weight:600;background:var(--tint);color:var(--ink2);white-space:nowrap}
+.tag.instant{color:var(--accent-ink)}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+.empty{padding:18px;color:var(--muted);text-align:center}
+.log{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;padding:6px 0}
+.log .ln{display:grid;grid-template-columns:66px 48px 1fr;gap:8px;padding:1px 10px;word-break:break-word}
+.log .ln:hover{background:var(--tint)}
+.log .t{color:var(--muted);white-space:nowrap}
+.log .lv{font-weight:700;color:var(--muted);font-size:11px;padding-top:1px}
+.log .lv.WARN{color:var(--warning-ink)}.log .lv.ERROR{color:var(--critical-ink)}
+.log .ERROR .m{color:var(--critical-ink);font-weight:600}
+.log .WARN .m{color:var(--warning-ink)}
+.log .a{color:var(--ink2)}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:7px 18px;padding:12px 14px;margin:0}
+.kv dt{color:var(--muted)}.kv dd{margin:0;word-break:break-word}
+footer{color:var(--muted);font-size:12px;margin-top:16px;text-align:center}
+@media (max-width:640px){
+  .log .ln{grid-template-columns:58px 1fr}.log .lv{display:none}
+  .tile .value{font-size:22px}
+  .kv{grid-template-columns:1fr;gap:2px}.kv dd{margin-bottom:8px}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo" aria-hidden="true">&#x27F3;</span>
+    <h1>VK Nex DB Sync</h1>
+    <span id="pill" class="pill"><span class="dot"></span><span id="pillText">Connecting&#8230;</span></span>
+  </div>
+  <button id="syncNow" class="primary" disabled title="Start an interval run now instead of waiting for the next one">Sync now</button>
+  <div class="route"><span id="source" class="mono">&#8230;</span><span class="arrow">&#8594;</span><span id="target" class="mono">&#8230;</span></div>
+  <div class="meta" id="meta"></div>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<section class="tiles">
+  <div class="tile"><div class="label">Last run</div><div class="value" id="lastValue">&#8211;</div><div class="sub" id="lastSub"></div></div>
+  <div class="tile"><div class="label">Next run</div><div class="value" id="nextValue">&#8211;</div><div class="sub" id="nextSub"></div></div>
+  <div class="tile"><div class="label">Instant sync</div><div class="value" id="instValue">&#8211;</div><div class="sub" id="instSub"></div></div>
+  <div class="tile"><div class="label">Running for</div><div class="value" id="upValue">&#8211;</div><div class="sub" id="upSub"></div></div>
+</section>
+
+<nav class="tabs">
+  <button data-tab="tables">Tables</button>
+  <button data-tab="runs">Run history</button>
+  <button data-tab="log">Log</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+
+<section id="panel-tables" class="panel">
+  <div class="toolbar">
+    <input id="filter" type="search" placeholder="Filter tables&#8230;" autocomplete="off">
+    <button class="chip active" data-kind="all">All</button>
+    <button class="chip" data-kind="instant">Instant</button>
+    <button class="chip" data-kind="interval">Interval</button>
+    <span class="count" id="tablesCount"></span>
+  </div>
+  <div class="card scroll">
+    <table>
+      <thead><tr><th>Table</th><th>Kind</th><th>Synced</th><th>Last synced</th><th>Notes</th></tr></thead>
+      <tbody id="tablesBody"></tbody>
+    </table>
+  </div>
+  <p class="muted small" id="tablesNote"></p>
+</section>
+
+<section id="panel-runs" class="panel">
+  <div class="card scroll">
+    <table>
+      <thead><tr><th>Started</th><th>Mode</th><th class="num">Took</th><th class="num">Tables</th><th class="num">Rows read</th><th class="num">Written</th><th class="num">Deleted</th></tr></thead>
+      <tbody id="runsBody"></tbody>
+    </table>
+  </div>
+  <p class="muted small" id="runsNote"></p>
+</section>
+
+<section id="panel-log" class="panel">
+  <div class="toolbar">
+    <label><input type="checkbox" id="errorsOnly"> Warnings and errors only</label>
+    <span class="count" id="logNote"></span>
+  </div>
+  <div class="card scroll" id="logScroll"><div class="log" id="logBody"></div></div>
+</section>
+
+<section id="panel-settings" class="panel">
+  <div class="card"><dl class="kv" id="settings"></dl></div>
+</section>
+
+<footer>vknex-dbsync status page. The page refreshes itself every 2 seconds.</footer>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const S = { status: null, fetchedAt: 0, offline: false, tables: null, tablesAt: 0, runs: null, runsAt: 0,
+  tab: 'tables', filter: '', kind: 'all', errorsOnly: false, logKey: '', settingsKey: '' };
+try {
+  S.tab = localStorage.getItem('vknex.tab') || 'tables';
+  S.errorsOnly = localStorage.getItem('vknex.errorsOnly') === '1';
+} catch (e) {}
+const INSTANT = { off: 'Off', starting: 'Starting', listening: 'Listening', syncing: 'Syncing', paused: 'Paused', retrying: 'Retrying', down: 'Down' };
+
+function el(tag, cls, ...kids) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  for (const k of kids.flat()) if (k != null && k !== false) n.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return n;
+}
+function titled(text, title, cls) { const n = el('span', cls || '', text); n.title = title; return n; }
+const now = () => S.status ? S.status.now + (Date.now() - S.fetchedAt) : Date.now();
+function rel(s) {
+  s = Math.max(0, Math.round(s));
+  if (s < 60) return s + ' s';
+  let m = Math.floor(s / 60); const r = s % 60;
+  if (m < 60) return r && m < 10 ? m + ' min ' + r + ' s' : m + ' min';
+  let h = Math.floor(m / 60); m %= 60;
+  if (h < 24) return m ? h + ' h ' + m + ' min' : h + ' h';
+  const d = Math.floor(h / 24); h %= 24;
+  return h ? d + ' d ' + h + ' h' : d + ' d';
+}
+const ago = t => t ? rel((now() - t) / 1000) + ' ago' : 'never';
+const until = t => { if (!t) return '–'; const s = (t - now()) / 1000; return s <= 0 ? 'now' : 'in ' + rel(s); };
+const dur = ms => ms == null ? '–' : ms < 1000 ? ms + ' ms' : rel(ms / 1000);
+const num = v => v == null ? '–' : Number(v).toLocaleString();
+const when = t => t ? new Date(t).toLocaleString(undefined, { hour12: false }) : '–';
+const clock = t => t ? new Date(t).toLocaleTimeString(undefined, { hour12: false }) : '';
+const few = (list, n) => !list || !list.length ? '' : list.length <= n ? list.join(', ') : list.slice(0, n).join(', ') + ' and ' + (list.length - n) + ' more';
+const setting = name => { const s = S.status && S.status.settings.find(x => x.name === name); return s ? s.value : ''; };
+
+async function getJSON(url, opts) {
+  const r = await fetch(url, Object.assign({ cache: 'no-store' }, opts || {}));
+  if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+  return r.json();
+}
+
+function overall() {
+  if (S.offline) return ['critical', 'Not running'];
+  const r = S.status.runs, i = S.status.instant;
+  if (r.running) return ['accent', 'Interval run in progress'];
+  if (i.state === 'syncing') return ['accent', 'Instant sync in progress'];
+  if (r.failingSince) return ['critical', 'Last run failed'];
+  if (i.enabled && i.state === 'down') return ['critical', 'Instant sync down'];
+  if (i.enabled && i.state === 'retrying') return ['serious', 'Instant sync retrying'];
+  if (i.enabled && i.state === 'paused') return ['warning', 'Instant sync paused'];
+  if (i.enabled && i.state === 'starting') return ['warning', 'Starting'];
+  return ['good', 'Running'];
+}
+
+function renderHeader() {
+  const [cls, text] = overall();
+  $('pill').className = 'pill ' + cls;
+  $('pillText').textContent = text;
+  document.title = (S.offline ? '● ' : '') + 'VK Nex DB Sync';
+  const st = S.status;
+  if (!st) return;
+  $('source').textContent = st.source;
+  $('target').textContent = st.target;
+  $('meta').textContent = st.host + ' · pid ' + st.pid + ' · started ' + when(st.startedAt) + ' · log: ' + (st.logFile || 'console');
+  const b = $('syncNow');
+  b.disabled = S.offline || st.runs.running || st.runs.requested;
+  b.textContent = st.runs.running ? 'Syncing…' : st.runs.requested ? 'Requested' : 'Sync now';
+}
+
+function renderBanner() {
+  const b = $('banner');
+  b.replaceChildren();
+  b.hidden = true;
+  b.className = 'banner';
+  if (S.offline) {
+    b.hidden = false;
+    b.append(el('b', '', 'Cannot reach the sync process'),
+      el('div', 'err', 'It is stopped, or its status page is turned off (SYNC_UI). Click the desktop icon again to start it; this page reconnects by itself.'));
+    return;
+  }
+  const r = S.status.runs, i = S.status.instant, parts = [];
+  if (r.failingSince && r.last && r.last.error) {
+    let title = 'Interval run failed ' + ago(r.last.finishedAt);
+    if (r.failingSince !== r.last.finishedAt) title += ', failing since ' + when(r.failingSince);
+    parts.push(['critical', title + '. It is tried again on the next interval.', r.last.error]);
+  }
+  if (i.enabled && i.state === 'down') parts.push(['critical', 'Instant sync stopped ' + ago(i.since) + '; it restarts ' + until(i.retryAt) + '.', i.lastError]);
+  else if (i.enabled && i.state === 'retrying') parts.push(['serious', 'Instant sync of ' + few(i.waiting, 4) + ' failed ' + ago(i.lastErrorAt) + '; tried again ' + until(i.retryAt) + '.', i.lastError]);
+  else if (i.enabled && i.state === 'paused') parts.push(['warning', 'Instant sync is paused while an interval run applies schema changes and moves every table.', '']);
+  if (!parts.length) return;
+  b.hidden = false;
+  b.className = 'banner ' + parts[0][0];
+  for (const [, title, err] of parts) {
+    b.append(el('b', '', title));
+    if (err) b.append(el('div', 'err mono', err));
+  }
+}
+
+function setValue(id, text, small) { const n = $(id); n.textContent = text; n.className = 'value' + (small ? ' small' : ''); }
+function setSub(id, bits) {
+  const n = $(id);
+  n.replaceChildren();
+  let first = true;
+  for (const b of bits) {
+    if (b == null || b === '') continue;
+    if (!first) n.append(' · ');
+    n.append(b.nodeType ? b : String(b));
+    first = false;
+  }
+}
+
+function renderTiles() {
+  const st = S.status;
+  if (!st) return;
+  const r = st.runs, i = st.instant, L = r.last;
+  if (r.running) {
+    setValue('lastValue', 'Running', true);
+    setSub('lastSub', ['started ' + ago(r.runningSince), L ? 'previous run ' + (L.error ? 'failed' : 'ok') + ' ' + ago(L.finishedAt) : null]);
+  } else if (!L) {
+    setValue('lastValue', 'No run yet', true);
+    setSub('lastSub', ['the first interval run has not finished']);
+  } else {
+    setValue('lastValue', ago(L.finishedAt));
+    const bits = [];
+    if (L.error) bits.push(el('span', 'bad', '✕ failed'), 'see above');
+    else if (L.skipped) bits.push('skipped: another sync held the lock');
+    else bits.push(el('span', 'ok', '✓ ok'), num(L.tables) + ' tables', num(L.rowsWritten) + ' written', num(L.rowsDeleted) + ' deleted', 'took ' + dur(L.tookMs));
+    if (L.schemaChanges) bits.push(L.schemaChanges + ' schema changes');
+    if (L.withKinds && L.withKinds.length) bits.push('with ' + L.withKinds.join(', '));
+    setSub('lastSub', bits);
+  }
+
+  const every = setting('Interval runs');
+  if (r.running) { setValue('nextValue', 'Running now', true); setSub('nextSub', [every]); }
+  else if (r.requested) { setValue('nextValue', 'Requested', true); setSub('nextSub', ['starts in a moment']); }
+  else { setValue('nextValue', until(r.nextAt)); setSub('nextSub', [every, r.nextAt ? 'at ' + clock(r.nextAt) : null]); }
+
+  if (!i.enabled) {
+    setValue('instValue', 'Off', true);
+    setSub('instSub', ['SYNC_INSTANT is off: every table follows the interval runs']);
+  } else {
+    setValue('instValue', INSTANT[i.state] || i.state, true);
+    const bits = [num(i.instantTables) + ' instant', num(i.intervalTables) + ' interval tables'];
+    if (i.state === 'syncing') bits.push('syncing ' + few(i.syncing, 3));
+    if (i.waiting && i.waiting.length) bits.push(i.waiting.length + ' waiting, retry ' + until(i.retryAt));
+    if (i.state === 'down') bits.push('restart ' + until(i.retryAt));
+    if (i.last) bits.push('last change synced ' + ago(i.last.at) + ' (' + few(i.last.tables, 2) + ': ' + num(i.last.rowsWritten) + ' written, ' + num(i.last.rowsDeleted) + ' deleted, ' + dur(i.last.tookMs) + ')');
+    setSub('instSub', bits);
+  }
+
+  setValue('upValue', rel((now() - st.startedAt) / 1000));
+  setSub('upSub', [
+    num(r.count) + ' interval runs' + (r.failed ? ', ' + r.failed + ' failed' : ''),
+    i.enabled ? num(i.count) + ' instant syncs' + (i.failures ? ', ' + i.failures + ' failed' : '') : null,
+    num(r.rowsWritten + i.rowsWritten) + ' rows written',
+    num(r.rowsDeleted + i.rowsDeleted) + ' deleted',
+  ]);
+}
+
+function emptyRow(cols, text) { const td = el('td', 'empty', text); td.colSpan = cols; return el('tr', '', td); }
+
+function renderTables() {
+  const body = $('tablesBody');
+  body.replaceChildren();
+  const d = S.tables;
+  if (!d) return;
+  const q = S.filter.trim().toLowerCase();
+  const rows = d.tables.filter(t => (S.kind === 'all' || (S.kind === 'instant') === !!t.instant) &&
+    (!q || t.key.toLowerCase().includes(q) || (t.kind || '').toLowerCase().includes(q)));
+  $('tablesCount').textContent = rows.length + ' of ' + d.tables.length + ' tables';
+  if (!d.tables.length) body.append(emptyRow(5, 'No table list yet: it appears once the first interval run has read the local database.'));
+  else if (!rows.length) body.append(emptyRow(5, 'No table matches.'));
+  for (const t of rows) {
+    const notes = [];
+    if (!t.hasPk) notes.push('no primary key: replaced on each run');
+    else if (!t.updatedCol) notes.push('no change column: compared in full');
+    if (t.partitions) notes.push(t.partitions + ' partitions');
+    if (t.syncCol) notes.push('stamps ' + t.syncCol);
+    body.append(el('tr', '',
+      el('td', 'mono', t.key),
+      el('td', '', t.kind ? el('span', 'tag', t.kind) : el('span', 'muted', 'not listed')),
+      el('td', '', el('span', 'tag' + (t.instant ? ' instant' : ''), t.schedule)),
+      el('td', 'nowrap', t.lastSyncedAt ? titled(ago(t.lastSyncedAt), when(t.lastSyncedAt)) : el('span', 'muted', 'not yet')),
+      el('td', 'muted', notes.join(' · '))));
+  }
+  let note = d.asOf ? 'Table list from the local database, read ' + ago(d.asOf) + '. "Last synced" is the watermark on the live database.' : '';
+  if (d.error) note = 'Last-synced times unavailable: ' + d.error + '. ' + note;
+  $('tablesNote').textContent = note;
+}
+
+function renderRuns() {
+  const body = $('runsBody');
+  body.replaceChildren();
+  const d = S.runs;
+  if (!d) return;
+  if (!d.runs.length) body.append(emptyRow(7, d.error ? 'Run history unavailable.' : 'No run recorded on the live database yet.'));
+  for (const r of d.runs) {
+    body.append(el('tr', '',
+      el('td', 'nowrap', titled(when(r.startedAt), 'snapshot of the local database at ' + when(r.snapshotAt))),
+      el('td', '', el('span', 'tag' + (r.mode === 'instant' ? ' instant' : ''), r.mode)),
+      el('td', 'num', dur(r.tookMs)),
+      el('td', 'num', num(r.tables)),
+      el('td', 'num', num(r.rowsRead)),
+      el('td', 'num', num(r.rowsWritten)),
+      el('td', 'num', num(r.rowsDeleted))));
+  }
+  $('runsNote').textContent = d.error ? 'Run history unavailable: ' + d.error
+    : 'The last ' + d.runs.length + ' runs recorded in ' + (setting('Sync state schema') || 'vknex_sync') + '.run_log on the live database, newest first.';
+}
+
+const LINE = /^time=(\S+) level=(\S+) msg=("(?:[^"\\]|\\.)*"|\S*)\s*(.*)$/;
+function parseLine(s) {
+  if (s.startsWith('{')) {
+    try {
+      const o = JSON.parse(s), attrs = [];
+      for (const k of Object.keys(o)) if (k !== 'time' && k !== 'level' && k !== 'msg') attrs.push(k + '=' + (typeof o[k] === 'string' ? o[k] : JSON.stringify(o[k])));
+      return { time: o.time || '', level: o.level || '', msg: o.msg || '', attrs: attrs.join(' ') };
+    } catch (e) {}
+  }
+  const m = LINE.exec(s);
+  if (!m) return { time: '', level: '', msg: s, attrs: '' };
+  let msg = m[3];
+  if (msg.startsWith('"')) { try { msg = JSON.parse(msg); } catch (e) { msg = msg.slice(1, -1); } }
+  return { time: m[1], level: m[2], msg, attrs: m[4] };
+}
+const isProblem = l => /level=(WARN|ERROR)\b|"level":"(WARN|ERROR)"/.test(l);
+
+function renderLog() {
+  const st = S.status;
+  if (!st || !$('panel-log').classList.contains('active')) return;
+  const lines = S.errorsOnly ? st.log.filter(isProblem) : st.log;
+  const key = lines.length + '|' + (lines[lines.length - 1] || '') + '|' + S.errorsOnly;
+  if (key === S.logKey) return;
+  S.logKey = key;
+  const sc = $('logScroll');
+  const stick = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 40;
+  const body = $('logBody');
+  body.replaceChildren();
+  if (!lines.length) body.append(el('div', 'empty', S.errorsOnly ? 'No warnings or errors in the last ' + st.log.length + ' lines.' : 'No log lines yet.'));
+  for (const l of lines) {
+    const p = parseLine(l), t = p.time ? new Date(p.time) : null, ok = t && !isNaN(t);
+    body.append(el('div', 'ln ' + p.level,
+      ok ? titled(clock(t.getTime()), when(t.getTime()), 't') : el('span', 't', ''),
+      el('span', 'lv ' + p.level, p.level),
+      el('span', '', el('span', 'm', p.msg), p.attrs ? ' ' : null, p.attrs ? el('span', 'a', p.attrs) : null)));
+  }
+  $('logNote').textContent = 'last ' + lines.length + ' lines' + (S.errorsOnly ? ' with warnings or errors' : '');
+  if (stick) sc.scrollTop = sc.scrollHeight;
+}
+
+function renderSettings() {
+  const st = S.status;
+  if (!st) return;
+  const key = JSON.stringify(st.settings);
+  if (key === S.settingsKey) return;
+  S.settingsKey = key;
+  const dl = $('settings');
+  dl.replaceChildren();
+  for (const s of st.settings) dl.append(el('dt', '', s.name), el('dd', '', s.value));
+}
+
+function render() {
+  renderHeader();
+  renderBanner();
+  renderTiles();
+  renderLog();
+  renderSettings();
+  if (S.tab === 'tables' && S.tables) renderTables();
+}
+
+async function pollStatus() {
+  try {
+    S.status = await getJSON('/api/status');
+    S.fetchedAt = Date.now();
+    S.offline = false;
+  } catch (e) {
+    S.offline = true;
+  }
+  render();
+}
+async function pollTab(force) {
+  const stale = at => Date.now() - at > 9500;
+  if (S.tab === 'tables' && (force || stale(S.tablesAt))) {
+    S.tablesAt = Date.now();
+    try { S.tables = await getJSON('/api/tables'); }
+    catch (e) { if (!S.tables) S.tables = { tables: [], error: e.message }; else S.tables.error = e.message; }
+    renderTables();
+  }
+  if (S.tab === 'runs' && (force || stale(S.runsAt))) {
+    S.runsAt = Date.now();
+    try { S.runs = await getJSON('/api/runs'); }
+    catch (e) { if (!S.runs) S.runs = { runs: [], error: e.message }; else S.runs.error = e.message; }
+    renderRuns();
+  }
+}
+
+function showTab(t) {
+  S.tab = t;
+  try { localStorage.setItem('vknex.tab', t); } catch (e) {}
+  for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('active', b.dataset.tab === t);
+  for (const p of document.querySelectorAll('.panel')) p.classList.toggle('active', p.id === 'panel-' + t);
+  S.logKey = '';
+  renderLog();
+  pollTab(true);
+}
+
+for (const b of document.querySelectorAll('.tabs button')) b.addEventListener('click', () => showTab(b.dataset.tab));
+for (const c of document.querySelectorAll('.chip')) c.addEventListener('click', () => {
+  S.kind = c.dataset.kind;
+  for (const o of document.querySelectorAll('.chip')) o.classList.toggle('active', o === c);
+  renderTables();
+});
+$('filter').addEventListener('input', e => { S.filter = e.target.value; renderTables(); });
+$('errorsOnly').checked = S.errorsOnly;
+$('errorsOnly').addEventListener('change', e => {
+  S.errorsOnly = e.target.checked;
+  try { localStorage.setItem('vknex.errorsOnly', S.errorsOnly ? '1' : '0'); } catch (err) {}
+  S.logKey = '';
+  renderLog();
+});
+$('syncNow').addEventListener('click', async () => {
+  $('syncNow').disabled = true;
+  try { await getJSON('/api/sync', { method: 'POST' }); } catch (e) {}
+  pollStatus();
+});
+
+showTab(S.tab);
+pollStatus();
+setInterval(pollStatus, 2000);
+setInterval(() => pollTab(false), 2000);
+})();
+</script>
+</body>
+</html>

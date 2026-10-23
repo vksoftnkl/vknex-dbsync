@@ -18,8 +18,9 @@ import (
 // whose sync column (e.g. abj_sync_date) is NULL has changes the live DB has
 // not seen yet, and deletes wait in public.sync_deleted_rows with
 // sdr_sync_date NULL. After a successful run those rows get the sync time on
-// both sides. With -mark-txn=false only the master tables (outside
-// -txn-tables) are stamped: the others have no SyncCol (schema.Select).
+// both sides. With -mark-txn=false only the tables -instant mirrors (the
+// master tables, Table.Txn false) are stamped: the others have no SyncCol
+// (schema.Select).
 
 // pendingRows are a table's rows waiting at the snapshot: key and row version.
 type pendingRows struct {
@@ -144,7 +145,7 @@ func (s *Syncer) markSource(ctx context.Context, src *pgx.Conn, tables map[strin
 	var logged []string // tables whose logged deletes get the stamp
 	if m.deleteLog && m.deletesUpTo > 0 && s.cfg.Deletes {
 		for name, t := range tables {
-			if s.cfg.Marked(t.Schema, t.Name) {
+			if s.cfg.Marked(t.Txn) {
 				logged = append(logged, name)
 			}
 		}

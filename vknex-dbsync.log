@@ -2526,3 +2526,364 @@ time=2026-10-23T16:54:39.840+05:30 level=INFO msg="rows written" table=fixed.dev
 time=2026-10-23T16:54:40.617+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
 time=2026-10-23T16:54:41.136+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=5.947s
 time=2026-10-23T16:54:41.138+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T16:56:15.848+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T16:56:16.360+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T16:56:17.895+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T16:56:18.922+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=9.019s
+time=2026-10-23T16:56:18.923+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T16:56:28.716+05:30 level=INFO msg="rows written" table=audit.audit_log rows=1 scanned=1943
+time=2026-10-23T16:56:29.232+05:30 level=INFO msg="rows written" table=audit.user_login_sessions rows=1 scanned=558
+time=2026-10-23T16:56:33.640+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T16:56:34.156+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T16:56:35.715+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T16:56:36.757+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=8.829s
+time=2026-10-23T16:56:36.758+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T16:56:42.241+05:30 level=INFO msg="rows written" table=public.app_theme_template rows=1 scanned=1
+time=2026-10-23T16:56:43.263+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T16:56:44.818+05:30 level=INFO msg="instant sync complete" tables=public.app_theme_template rows_written=1 rows_deleted=0 took=7.759s
+time=2026-10-23T16:56:44.820+05:30 level=INFO msg="sync time set on source" rows=1 deletes=0 still_waiting=0
+time=2026-10-23T16:56:50.805+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T16:56:51.317+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T16:56:52.873+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T16:56:53.914+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=8.793s
+time=2026-10-23T16:56:53.915+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T16:57:04.097+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3964 rows_written=2 rows_deleted=0 took=2m18.406s
+time=2026-10-23T16:57:18.773+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T16:57:19.035+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T16:57:19.815+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T16:57:20.337+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=5.651s
+time=2026-10-23T16:57:20.339+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T17:01:26.413+05:30 level=INFO msg="rows written" table=audit.audit_log rows=1 scanned=1944
+time=2026-10-23T17:01:26.694+05:30 level=INFO msg="rows written" table=audit.user_login_sessions rows=1 scanned=559
+time=2026-10-23T17:01:50.429+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3966 rows_written=2 rows_deleted=0 took=2m4.738s
+time=2026-10-23T17:06:50.590+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3966 rows_written=0 rows_deleted=0 took=2m4.897s
+time=2026-10-23T17:11:15.330+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T17:11:15.841+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T17:11:17.384+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T17:11:18.412+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=8.675s
+time=2026-10-23T17:11:18.414+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T17:11:25.268+05:30 level=INFO msg="rows written" table=inventory.item_price_change_log rows=2 scanned=9
+time=2026-10-23T17:11:25.781+05:30 level=INFO msg="rows written" table=inventory.item_price_master rows=1 scanned=105
+time=2026-10-23T17:11:27.321+05:30 level=INFO msg="sync time set on target" rows=3 tables=2
+time=2026-10-23T17:11:28.345+05:30 level=INFO msg="instant sync complete" tables=inventory.item_price_change_log,inventory.item_price_master rows_written=3 rows_deleted=0 took=9.63s
+time=2026-10-23T17:11:28.347+05:30 level=INFO msg="sync time set on source" rows=3 deletes=0 still_waiting=0
+time=2026-10-23T17:11:45.431+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T17:11:45.941+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T17:11:47.482+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T17:11:48.504+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=8.629s
+time=2026-10-23T17:11:48.506+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T17:12:01.387+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3966 rows_written=0 rows_deleted=0 took=2m15.655s
+time=2026-10-23T17:12:44.063+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T17:12:44.322+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T17:12:45.102+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T17:12:45.623+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=5.933s
+time=2026-10-23T17:12:45.625+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T17:12:50.278+05:30 level=INFO msg="rows written" table=inventory.item_price_change_log rows=2 scanned=11
+time=2026-10-23T17:12:50.542+05:30 level=INFO msg="rows written" table=inventory.item_price_master rows=1 scanned=105
+time=2026-10-23T17:12:51.325+05:30 level=INFO msg="sync time set on target" rows=3 tables=2
+time=2026-10-23T17:12:51.846+05:30 level=INFO msg="instant sync complete" tables=inventory.item_price_change_log,inventory.item_price_master rows_written=3 rows_deleted=0 took=5.92s
+time=2026-10-23T17:12:51.848+05:30 level=INFO msg="sync time set on source" rows=3 deletes=0 still_waiting=0
+time=2026-10-23T17:13:20.729+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T17:13:20.991+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T17:13:21.777+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T17:13:22.302+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=5.636s
+time=2026-10-23T17:13:22.304+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T17:13:26.686+05:30 level=INFO msg="rows written" table=inventory.item_price_change_log rows=2 scanned=13
+time=2026-10-23T17:13:26.946+05:30 level=INFO msg="rows written" table=inventory.item_price_master rows=1 scanned=105
+time=2026-10-23T17:13:27.724+05:30 level=INFO msg="sync time set on target" rows=3 tables=2
+time=2026-10-23T17:13:28.245+05:30 level=INFO msg="instant sync complete" tables=inventory.item_price_change_log,inventory.item_price_master rows_written=3 rows_deleted=0 took=5.641s
+time=2026-10-23T17:13:28.247+05:30 level=INFO msg="sync time set on source" rows=3 deletes=0 still_waiting=0
+time=2026-10-23T17:16:26.896+05:30 level=INFO msg="rows written" table=audit.audit_log rows=6 scanned=1950
+time=2026-10-23T17:16:50.755+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3972 rows_written=6 rows_deleted=0 took=2m4.951s
+time=2026-10-23T17:21:49.863+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3972 rows_written=0 rows_deleted=0 took=2m4.058s
+time=2026-10-23T17:26:50.572+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3972 rows_written=0 rows_deleted=0 took=2m4.712s
+time=2026-10-23T17:31:49.418+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3972 rows_written=0 rows_deleted=0 took=2m3.557s
+time=2026-10-23T17:32:18.771+05:30 level=INFO msg="rows written" table=inventory.item_group_master rows=1 scanned=127
+time=2026-10-23T17:32:19.285+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T17:32:19.808+05:30 level=INFO msg="instant sync complete" tables=inventory.item_group_master rows_written=1 rows_deleted=0 took=5.939s
+time=2026-10-23T17:32:19.810+05:30 level=INFO msg="sync time set on source" rows=1 deletes=0 still_waiting=0
+time=2026-10-23T17:36:26.662+05:30 level=INFO msg="rows written" table=audit.audit_log rows=1 scanned=1951
+time=2026-10-23T17:36:50.406+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3973 rows_written=1 rows_deleted=0 took=2m4.544s
+time=2026-10-23T17:41:51.228+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3973 rows_written=0 rows_deleted=0 took=2m5.311s
+time=2026-10-23T17:46:48.876+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3973 rows_written=0 rows_deleted=0 took=2m2.958s
+time=2026-10-23T17:51:50.219+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3973 rows_written=0 rows_deleted=0 took=2m4.3s
+time=2026-10-23T17:56:50.292+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3973 rows_written=0 rows_deleted=0 took=2m4.372s
+time=2026-10-23T18:01:50.238+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3973 rows_written=0 rows_deleted=0 took=2m4.285s
+time=2026-10-23T18:02:50.363+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:02:50.882+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T18:02:51.404+05:30 level=INFO msg="instant sync complete" tables=public.user_master rows_written=1 rows_deleted=0 took=3.81s
+time=2026-10-23T18:02:51.407+05:30 level=INFO msg="sync time set on source" rows=1 deletes=0 still_waiting=0
+time=2026-10-23T18:03:13.276+05:30 level=INFO msg="rows written" table=public.app_theme_template rows=1 scanned=1
+time=2026-10-23T18:03:13.794+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T18:03:14.579+05:30 level=INFO msg="instant sync complete" tables=public.app_theme_template rows_written=1 rows_deleted=0 took=5.368s
+time=2026-10-23T18:03:14.581+05:30 level=INFO msg="sync time set on source" rows=1 deletes=0 still_waiting=0
+time=2026-10-23T18:06:28.295+05:30 level=INFO msg="rows written" table=audit.audit_log rows=1 scanned=1952
+time=2026-10-23T18:06:28.558+05:30 level=INFO msg="rows written" table=audit.user_login_sessions rows=1 scanned=560
+time=2026-10-23T18:06:52.236+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3975 rows_written=2 rows_deleted=0 took=2m6.199s
+time=2026-10-23T18:10:00.236+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:10:00.756+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T18:10:02.406+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:10:03.470+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=9.098s
+time=2026-10-23T18:10:03.472+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:11:54.109+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=3975 rows_written=0 rows_deleted=0 took=2m8.024s
+time=2026-10-23T18:14:32.656+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:14:32.916+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T18:14:33.691+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:14:34.211+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=5.62s
+time=2026-10-23T18:14:34.212+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:15:21.799+05:30 level=INFO msg="rows written" table=accounts.acc_voucher_types rows=1 scanned=34
+time=2026-10-23T18:15:22.312+05:30 level=INFO msg="rows written" table=public.app_setting_def rows=1 scanned=135
+time=2026-10-23T18:15:24.360+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:15:25.906+05:30 level=INFO msg="instant sync complete" tables=accounts.acc_voucher_types,public.app_setting_def rows_written=2 rows_deleted=0 took=11.673s
+time=2026-10-23T18:15:25.908+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:15:31.882+05:30 level=INFO msg="rows written" table=public._erp_seed_history rows=1 scanned=42
+time=2026-10-23T18:15:32.398+05:30 level=INFO msg="rows written" table=stock.stock_track_preset rows=1 scanned=9
+time=2026-10-23T18:15:33.940+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T18:15:34.963+05:30 level=INFO msg="instant sync complete" tables=public._erp_seed_history,stock.stock_track_preset rows_written=2 rows_deleted=0 took=8.755s
+time=2026-10-23T18:15:34.965+05:30 level=INFO msg="sync time set on source" rows=1 deletes=0 still_waiting=0
+time=2026-10-23T18:16:25.261+05:30 level=INFO msg="rows written" table=accounts.acc_voucher_header rows=2 scanned=147
+time=2026-10-23T18:16:26.042+05:30 level=INFO msg="rows written" table=accounts.acc_voucher_seq rows=2 scanned=50
+time=2026-10-23T18:16:26.308+05:30 level=INFO msg="rows written" table=accounts.acc_vouchers rows=4 scanned=468
+time=2026-10-23T18:16:28.966+05:30 level=INFO msg="rows written" table=audit.audit_log rows=5 scanned=1957
+time=2026-10-23T18:16:30.565+05:30 level=INFO msg="rows written" table=public.txn_status_log rows=5 scanned=199
+time=2026-10-23T18:16:31.863+05:30 level=INFO msg="rows written" table=stock.stock_item_cost rows=1 scanned=13
+time=2026-10-23T18:16:32.125+05:30 level=INFO msg="rows written" table=stock.stock_lot rows=1 scanned=13
+time=2026-10-23T18:16:32.662+05:30 level=INFO msg="rows written" table=stock.stock_balance rows=1 scanned=13
+time=2026-10-23T18:16:32.927+05:30 level=INFO msg="rows written" table=stock.stock_ledger rows=2 scanned=59
+time=2026-10-23T18:16:33.186+05:30 level=INFO msg="rows written" table=stock.stock_voucher rows=2 scanned=38
+time=2026-10-23T18:16:33.451+05:30 level=INFO msg="rows written" table=stock.stock_voucher_item rows=2 scanned=41
+time=2026-10-23T18:16:52.963+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4000 rows_written=27 rows_deleted=0 took=2m6.87s
+time=2026-10-23T18:19:26.316+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:19:26.574+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T18:19:27.356+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:19:27.876+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=5.675s
+time=2026-10-23T18:19:27.878+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:19:58.590+05:30 level=INFO msg="schema changes: this run moves every table; instant sync pauses until it commits"
+time=2026-10-23T18:20:04.135+05:30 level=INFO msg="instant sync paused: an interval run is applying schema changes and moving every table" tables=public.user_master
+time=2026-10-23T18:24:58.453+05:30 level=INFO msg="rows written" table=audit.audit_log rows=5 scanned=1962
+time=2026-10-23T18:25:14.386+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=chk_led_sez_consistency
+time=2026-10-23T18:25:16.487+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=ck_led_tds_pair
+time=2026-10-23T18:25:20.674+05:30 level=INFO msg="rows written" table=accounts.acc_voucher_seq rows=2 scanned=50
+time=2026-10-23T18:25:30.094+05:30 level=INFO msg="rows written" table=accounts.acc_voucher_header rows=2 scanned=149
+time=2026-10-23T18:25:30.882+05:30 level=INFO msg="rows written" table=accounts.acc_vouchers rows=4 scanned=472
+time=2026-10-23T18:25:33.004+05:30 level=INFO msg="rows written" table=public.txn_status_log rows=5 scanned=204
+time=2026-10-23T18:25:46.162+05:30 level=INFO msg="rows written" table=stock.stock_item_cost rows=1 scanned=13
+time=2026-10-23T18:25:46.679+05:30 level=INFO msg="rows written" table=stock.stock_lot rows=1 scanned=13
+time=2026-10-23T18:25:47.493+05:30 level=INFO msg="rows written" table=stock.stock_balance rows=1 scanned=13
+time=2026-10-23T18:25:47.764+05:30 level=INFO msg="rows written" table=stock.stock_ledger rows=2 scanned=61
+time=2026-10-23T18:25:48.794+05:30 level=INFO msg="rows written" table=stock.stock_voucher rows=2 scanned=40
+time=2026-10-23T18:25:49.306+05:30 level=INFO msg="rows written" table=stock.stock_voucher_item rows=2 scanned=43
+time=2026-10-23T18:26:58.030+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"chk_led_sez_consistency\" CHECK (((led_is_sez = false) OR (((led_gst_party_reg_type)::text = 'REGULAR'::text) AND (led_gstin_no IS NOT NULL) AND (btrim((led_gstin_no)::text) <> ''::text)))) NOT VALID"
+time=2026-10-23T18:26:58.544+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"ck_led_tds_pair\" CHECK (((led_is_tds_applicable = false) OR ((led_tds_deductee_type IS NOT NULL) AND (led_tds_nature_of_payment IS NOT NULL)))) NOT VALID"
+time=2026-10-23T18:26:59.056+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_slt_key_batch ON stock.stock_lot USING btree (slt_company_id, slt_key_batch) WHERE (((slt_key_batch)::text <> '~'::text) AND (slt_is_deleted = false))"
+time=2026-10-23T18:27:00.088+05:30 level=INFO msg="sync time set on target" rows=0 tables=1
+time=2026-10-23T18:27:02.212+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=1 tables=190 rows_read=26535 rows_written=27 rows_deleted=0 took=7m16.116s
+time=2026-10-23T18:27:02.215+05:30 level=INFO msg="sync time set on source" rows=0 deletes=0 still_waiting=3
+time=2026-10-23T18:27:35.848+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:27:37.928+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T18:27:38.978+05:30 level=INFO msg="instant sync complete" tables=inventory.item_master,inventory.item_unit_conversion,public.user_master rows_written=1 rows_deleted=0 took=20.741s
+time=2026-10-23T18:27:38.981+05:30 level=INFO msg="sync time set on source" rows=1 deletes=5 still_waiting=0
+time=2026-10-23T18:27:38.981+05:30 level=INFO msg="instant sync resumed"
+time=2026-10-23T18:28:57.995+05:30 level=INFO msg="rows written" table=accounts.acc_voucher_header rows=18 scanned=167
+time=2026-10-23T18:28:58.790+05:30 level=INFO msg="rows written" table=accounts.acc_voucher_seq rows=1 scanned=50
+time=2026-10-23T18:28:59.072+05:30 level=INFO msg="rows written" table=accounts.acc_vouchers rows=36 scanned=508
+time=2026-10-23T18:29:02.141+05:30 level=INFO msg="rows written" table=audit.user_login_sessions rows=2 scanned=562
+time=2026-10-23T18:29:03.264+05:30 level=INFO msg="rows written" table=public.txn_status_log rows=29 scanned=233
+time=2026-10-23T18:29:26.740+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4107 rows_written=86 rows_deleted=0 took=2m23.524s
+time=2026-10-23T18:30:34.038+05:30 level=INFO msg="rows written" table=public._erp_seed_history rows=1 scanned=43
+time=2026-10-23T18:30:34.302+05:30 level=INFO msg="rows written" table=public.db_table_master rows=3 scanned=195
+time=2026-10-23T18:30:35.078+05:30 level=INFO msg="sync time set on target" rows=3 tables=1
+time=2026-10-23T18:30:36.170+05:30 level=INFO msg="instant sync complete" tables=public._erp_seed_history,public.db_table_master rows_written=4 rows_deleted=0 took=6.227s
+time=2026-10-23T18:30:36.171+05:30 level=INFO msg="sync time set on source" rows=3 deletes=0 still_waiting=0
+time=2026-10-23T18:32:21.176+05:30 level=INFO msg="schema changes: this run moves every table; instant sync pauses until it commits"
+time=2026-10-23T18:32:21.435+05:30 level=INFO msg="schema change" sql="CREATE TABLE \"inventory\".\"item_colour_master\" (\n  \"icl_id\" uuid DEFAULT uuidv7() NOT NULL,\n  \"icl_company_id\" uuid,\n  \"icl_code\" character varying(20),\n  \"icl_name\" character varying(50) NOT NULL,\n  \"icl_sort\" integer DEFAULT 0 NOT NULL,\n  \"icl_is_active\" boolean DEFAULT true NOT NULL,\n  \"icl_is_deleted\" boolean DEFAULT false NOT NULL,\n  \"icl_sync_date\" timestamp(6) with time zone,\n  \"icl_created_on\" timestamp(6) with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  \"icl_created_by\" character varying(100),\n  \"icl_modified_on\" timestamp(6) with time zone,\n  \"icl_modified_by\" character varying(100)\n)"
+time=2026-10-23T18:32:21.697+05:30 level=INFO msg="schema change" sql="CREATE TABLE \"inventory\".\"item_size_master\" (\n  \"isz_id\" uuid DEFAULT uuidv7() NOT NULL,\n  \"isz_company_id\" uuid,\n  \"isz_code\" character varying(20),\n  \"isz_name\" character varying(50) NOT NULL,\n  \"isz_size_set\" character varying(20),\n  \"isz_sort\" integer DEFAULT 0 NOT NULL,\n  \"isz_is_active\" boolean DEFAULT true NOT NULL,\n  \"isz_is_deleted\" boolean DEFAULT false NOT NULL,\n  \"isz_sync_date\" timestamp(6) with time zone,\n  \"isz_created_on\" timestamp(6) with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  \"isz_created_by\" character varying(100),\n  \"isz_modified_on\" timestamp(6) with time zone,\n  \"isz_modified_by\" character varying(100)\n)"
+time=2026-10-23T18:32:21.960+05:30 level=INFO msg="schema change" sql="CREATE TABLE \"stock\".\"stock_batch_detail\" (\n  \"sbd_id\" uuid NOT NULL,\n  \"sbd_company_id\" uuid NOT NULL,\n  \"sbd_batch_no\" character varying(100) NOT NULL,\n  \"sbd_item_id\" uuid NOT NULL,\n  \"sbd_size_id\" uuid,\n  \"sbd_colour_id\" uuid,\n  \"sbd_model\" character varying(100),\n  \"sbd_src_doc_type\" character varying(30),\n  \"sbd_src_doc_id\" uuid,\n  \"sbd_src_line_id\" uuid,\n  \"sbd_is_active\" boolean DEFAULT true NOT NULL,\n  \"sbd_is_deleted\" boolean DEFAULT false NOT NULL,\n  \"sbd_sync_date\" timestamp(6) with time zone,\n  \"sbd_created_on\" timestamp(6) with time zone DEFAULT now() NOT NULL,\n  \"sbd_created_by\" text,\n  \"sbd_modified_on\" timestamp(6) with time zone,\n  \"sbd_modified_by\" text\n)"
+time=2026-10-23T18:32:22.219+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"inventory\".\"item_colour_master\" ADD CONSTRAINT \"pk_item_colour_master\" PRIMARY KEY (icl_id)"
+time=2026-10-23T18:32:22.478+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"inventory\".\"item_size_master\" ADD CONSTRAINT \"pk_item_size_master\" PRIMARY KEY (isz_id)"
+time=2026-10-23T18:32:22.739+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"stock\".\"stock_batch_detail\" ADD CONSTRAINT \"pk_stock_batch_detail\" PRIMARY KEY (sbd_id)"
+time=2026-10-23T18:32:35.642+05:30 level=INFO msg="instant sync paused: an interval run is applying schema changes and moving every table" tables=fixed.device_master,public.user_master
+time=2026-10-23T18:37:40.838+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=chk_led_sez_consistency
+time=2026-10-23T18:37:42.691+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=ck_led_tds_pair
+time=2026-10-23T18:39:25.487+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"chk_led_sez_consistency\" CHECK (((led_is_sez = false) OR (((led_gst_party_reg_type)::text = 'REGULAR'::text) AND (led_gstin_no IS NOT NULL) AND (btrim((led_gstin_no)::text) <> ''::text)))) NOT VALID"
+time=2026-10-23T18:39:25.754+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"ck_led_tds_pair\" CHECK (((led_is_tds_applicable = false) OR ((led_tds_deductee_type IS NOT NULL) AND (led_tds_nature_of_payment IS NOT NULL)))) NOT VALID"
+time=2026-10-23T18:39:26.026+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"inventory\".\"item_colour_master\" ADD CONSTRAINT \"ck_icl_name\" CHECK ((length(btrim((icl_name)::text)) > 0))"
+time=2026-10-23T18:39:26.290+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"inventory\".\"item_size_master\" ADD CONSTRAINT \"ck_isz_name\" CHECK ((length(btrim((isz_name)::text)) > 0))"
+time=2026-10-23T18:39:26.558+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"stock\".\"stock_batch_detail\" ADD CONSTRAINT \"ck_sbd_batch_shape\" CHECK ((((sbd_batch_no)::text = upper(btrim((sbd_batch_no)::text))) AND ((sbd_batch_no)::text <> ''::text)))"
+time=2026-10-23T18:39:26.834+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"stock\".\"stock_batch_detail\" ADD CONSTRAINT \"ck_sbd_model\" CHECK (((sbd_model IS NULL) OR (length(btrim((sbd_model)::text)) > 0)))"
+time=2026-10-23T18:39:27.094+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"stock\".\"stock_batch_detail\" ADD CONSTRAINT \"ck_sbd_src\" CHECK ((num_nonnulls(sbd_src_doc_type, sbd_src_doc_id, sbd_src_line_id) = ANY (ARRAY[0, 3])))"
+time=2026-10-23T18:39:27.362+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_icl_list ON inventory.item_colour_master USING btree (icl_company_id, icl_sort) WHERE (icl_is_deleted = false)"
+time=2026-10-23T18:39:27.881+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_sync_pending_item_colour_master ON inventory.item_colour_master USING btree (icl_id) WHERE (icl_sync_date IS NULL)"
+time=2026-10-23T18:39:28.396+05:30 level=INFO msg="schema change" sql="CREATE UNIQUE INDEX ux_icl_name ON inventory.item_colour_master USING btree (COALESCE(icl_company_id, '00000000-0000-0000-0000-000000000000'::uuid), upper((icl_name)::text)) WHERE (icl_is_deleted = false)"
+time=2026-10-23T18:39:28.915+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_isz_list ON inventory.item_size_master USING btree (isz_company_id, isz_sort) WHERE (isz_is_deleted = false)"
+time=2026-10-23T18:39:29.430+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_sync_pending_item_size_master ON inventory.item_size_master USING btree (isz_id) WHERE (isz_sync_date IS NULL)"
+time=2026-10-23T18:39:29.941+05:30 level=INFO msg="schema change" sql="CREATE UNIQUE INDEX ux_isz_name ON inventory.item_size_master USING btree (COALESCE(isz_company_id, '00000000-0000-0000-0000-000000000000'::uuid), upper((isz_name)::text)) WHERE (isz_is_deleted = false)"
+time=2026-10-23T18:39:30.495+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_sbd_colour ON stock.stock_batch_detail USING btree (sbd_company_id, sbd_colour_id) WHERE ((sbd_colour_id IS NOT NULL) AND (sbd_is_deleted = false))"
+time=2026-10-23T18:39:30.757+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_sbd_model ON stock.stock_batch_detail USING btree (sbd_company_id, sbd_item_id, upper((sbd_model)::text)) WHERE ((sbd_model IS NOT NULL) AND (sbd_is_deleted = false))"
+time=2026-10-23T18:39:31.020+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_sbd_size ON stock.stock_batch_detail USING btree (sbd_company_id, sbd_size_id) WHERE ((sbd_size_id IS NOT NULL) AND (sbd_is_deleted = false))"
+time=2026-10-23T18:39:31.550+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_sbd_src_doc ON stock.stock_batch_detail USING btree (sbd_src_doc_id) WHERE ((sbd_src_doc_id IS NOT NULL) AND (sbd_is_deleted = false))"
+time=2026-10-23T18:39:32.065+05:30 level=INFO msg="schema change" sql="CREATE INDEX ix_sync_pending_stock_batch_detail ON stock.stock_batch_detail USING btree (sbd_id) WHERE (sbd_sync_date IS NULL)"
+time=2026-10-23T18:39:32.580+05:30 level=INFO msg="schema change" sql="CREATE UNIQUE INDEX ux_sbd_batch ON stock.stock_batch_detail USING btree (sbd_company_id, sbd_batch_no) WHERE (sbd_is_deleted = false)"
+time=2026-10-23T18:39:33.095+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"inventory\".\"item_colour_master\" ADD CONSTRAINT \"fk_icl_company\" FOREIGN KEY (icl_company_id) REFERENCES public.companys(comp_id) ON UPDATE CASCADE ON DELETE RESTRICT"
+time=2026-10-23T18:39:33.358+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"inventory\".\"item_size_master\" ADD CONSTRAINT \"fk_isz_company\" FOREIGN KEY (isz_company_id) REFERENCES public.companys(comp_id) ON UPDATE CASCADE ON DELETE RESTRICT"
+time=2026-10-23T18:39:33.620+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"stock\".\"stock_batch_detail\" ADD CONSTRAINT \"fk_sbd_colour\" FOREIGN KEY (sbd_colour_id) REFERENCES inventory.item_colour_master(icl_id) ON UPDATE CASCADE ON DELETE RESTRICT"
+time=2026-10-23T18:39:33.887+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"stock\".\"stock_batch_detail\" ADD CONSTRAINT \"fk_sbd_company\" FOREIGN KEY (sbd_company_id) REFERENCES public.companys(comp_id) ON UPDATE CASCADE ON DELETE RESTRICT"
+time=2026-10-23T18:39:34.146+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"stock\".\"stock_batch_detail\" ADD CONSTRAINT \"fk_sbd_item\" FOREIGN KEY (sbd_item_id) REFERENCES inventory.item_master(item_id) ON UPDATE CASCADE ON DELETE RESTRICT"
+time=2026-10-23T18:39:34.407+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"stock\".\"stock_batch_detail\" ADD CONSTRAINT \"fk_sbd_size\" FOREIGN KEY (sbd_size_id) REFERENCES inventory.item_size_master(isz_id) ON UPDATE CASCADE ON DELETE RESTRICT"
+time=2026-10-23T18:39:34.933+05:30 level=INFO msg="sync time set on target" rows=0 tables=1
+time=2026-10-23T18:39:36.499+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=29 tables=193 rows_read=26624 rows_written=0 rows_deleted=0 took=7m33.197s
+time=2026-10-23T18:39:36.502+05:30 level=INFO msg="sync time set on source" rows=0 deletes=0 still_waiting=3
+time=2026-10-23T18:39:37.264+05:30 level=INFO msg="change notification triggers updated on the source" added=3 removed=0
+time=2026-10-23T18:39:49.917+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:39:50.435+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T18:39:53.535+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:39:54.573+05:30 level=INFO msg="instant sync complete" tables=inventory.item_colour_master,inventory.item_size_master,public.user_master,fixed.device_master,stock.stock_batch_detail rows_written=2 rows_deleted=0 took=13.889s
+time=2026-10-23T18:39:54.579+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:39:54.579+05:30 level=INFO msg="instant sync resumed"
+time=2026-10-23T18:41:04.797+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:41:05.828+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T18:41:06.866+05:30 level=INFO msg="instant sync complete" tables=public.user_master rows_written=1 rows_deleted=0 took=5.766s
+time=2026-10-23T18:41:06.867+05:30 level=INFO msg="sync time set on source" rows=1 deletes=0 still_waiting=0
+time=2026-10-23T18:41:15.549+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:41:16.069+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T18:41:17.616+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:41:18.657+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=8.77s
+time=2026-10-23T18:41:18.659+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:41:25.318+05:30 level=INFO msg="rows written" table=inventory.item_price_change_log rows=2 scanned=15
+time=2026-10-23T18:41:25.829+05:30 level=INFO msg="rows written" table=inventory.item_price_master rows=1 scanned=105
+time=2026-10-23T18:41:27.394+05:30 level=INFO msg="sync time set on target" rows=3 tables=2
+time=2026-10-23T18:41:28.431+05:30 level=INFO msg="instant sync complete" tables=inventory.item_price_change_log,inventory.item_price_master rows_written=3 rows_deleted=0 took=9.471s
+time=2026-10-23T18:41:28.433+05:30 level=INFO msg="sync time set on source" rows=3 deletes=0 still_waiting=0
+time=2026-10-23T18:41:34.332+05:30 level=INFO msg="rows written" table=audit.user_login_sessions rows=1 scanned=563
+time=2026-10-23T18:41:58.341+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:41:58.860+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T18:42:00.415+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:42:01.454+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=8.853s
+time=2026-10-23T18:42:01.456+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:42:01.753+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4108 rows_written=1 rows_deleted=0 took=2m24.25s
+time=2026-10-23T18:42:05.911+05:30 level=INFO msg="rows written" table=inventory.item_price_change_log rows=2 scanned=17
+time=2026-10-23T18:42:06.179+05:30 level=INFO msg="rows written" table=inventory.item_price_master rows=1 scanned=105
+time=2026-10-23T18:42:06.987+05:30 level=INFO msg="sync time set on target" rows=3 tables=2
+time=2026-10-23T18:42:07.520+05:30 level=INFO msg="instant sync complete" tables=inventory.item_price_change_log,inventory.item_price_master rows_written=3 rows_deleted=0 took=5.764s
+time=2026-10-23T18:42:07.522+05:30 level=INFO msg="sync time set on source" rows=3 deletes=0 still_waiting=0
+time=2026-10-23T18:44:08.986+05:30 level=INFO msg="rows written" table=audit.audit_screen rows=1 scanned=84
+time=2026-10-23T18:44:09.248+05:30 level=INFO msg="rows written" table=inventory.item_size_master rows=1 scanned=1
+time=2026-10-23T18:44:10.029+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:44:10.816+05:30 level=INFO msg="instant sync complete" tables=audit.audit_screen,inventory.item_size_master rows_written=2 rows_deleted=0 took=6.164s
+time=2026-10-23T18:44:10.818+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:44:15.471+05:30 level=INFO msg="rows deleted" table=inventory.item_size_master rows=1
+time=2026-10-23T18:44:15.990+05:30 level=INFO msg="instant sync complete" tables=inventory.item_size_master rows_written=0 rows_deleted=1 took=3.261s
+time=2026-10-23T18:44:15.991+05:30 level=INFO msg="sync time set on source" rows=0 deletes=1 still_waiting=0
+time=2026-10-23T18:46:03.429+05:30 level=INFO msg="rows written" table=inventory.item_master rows=2 scanned=10400
+time=2026-10-23T18:46:03.950+05:30 level=INFO msg="rows written" table=inventory.item_unit_conversion rows=3 scanned=474
+time=2026-10-23T18:46:05.996+05:30 level=INFO msg="sync time set on target" rows=5 tables=2
+time=2026-10-23T18:46:07.133+05:30 level=INFO msg="instant sync complete" tables=inventory.item_master,inventory.item_unit_conversion rows_written=5 rows_deleted=0 took=19.324s
+time=2026-10-23T18:46:07.135+05:30 level=INFO msg="sync time set on source" rows=0 deletes=0 still_waiting=5
+time=2026-10-23T18:46:23.354+05:30 level=INFO msg="rows deleted" table=inventory.item_unit_conversion rows=3
+time=2026-10-23T18:46:23.872+05:30 level=INFO msg="rows deleted" table=inventory.item_master rows=2
+time=2026-10-23T18:46:24.913+05:30 level=INFO msg="instant sync complete" tables=inventory.item_master,inventory.item_unit_conversion rows_written=0 rows_deleted=5 took=17.478s
+time=2026-10-23T18:46:24.914+05:30 level=INFO msg="sync time set on source" rows=0 deletes=5 still_waiting=0
+time=2026-10-23T18:46:36.232+05:30 level=INFO msg="rows written" table=audit.audit_log rows=4 scanned=1966
+time=2026-10-23T18:46:36.497+05:30 level=INFO msg="rows written" table=audit.user_login_sessions rows=1 scanned=564
+time=2026-10-23T18:46:59.793+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4113 rows_written=5 rows_deleted=0 took=2m22.289s
+time=2026-10-23T18:51:15.796+05:30 level=INFO msg="rows written" table=accounts.acc_voucher_header rows=18 scanned=185
+time=2026-10-23T18:51:16.586+05:30 level=INFO msg="rows written" table=accounts.acc_voucher_seq rows=1 scanned=50
+time=2026-10-23T18:51:16.857+05:30 level=INFO msg="rows written" table=accounts.acc_vouchers rows=36 scanned=544
+time=2026-10-23T18:51:21.264+05:30 level=INFO msg="rows written" table=public.txn_status_log rows=29 scanned=262
+time=2026-10-23T18:51:44.177+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4196 rows_written=84 rows_deleted=0 took=2m6.672s
+time=2026-10-23T18:52:27.900+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:52:28.169+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T18:52:28.953+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:52:29.478+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=5.728s
+time=2026-10-23T18:52:29.480+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:52:34.447+05:30 level=INFO msg="rows written" table=inventory.item_price_change_log rows=2 scanned=19
+time=2026-10-23T18:52:34.713+05:30 level=INFO msg="rows written" table=inventory.item_price_master rows=1 scanned=105
+time=2026-10-23T18:52:35.494+05:30 level=INFO msg="sync time set on target" rows=3 tables=2
+time=2026-10-23T18:52:36.028+05:30 level=INFO msg="instant sync complete" tables=inventory.item_price_change_log,inventory.item_price_master rows_written=3 rows_deleted=0 took=6.247s
+time=2026-10-23T18:52:36.030+05:30 level=INFO msg="sync time set on source" rows=3 deletes=0 still_waiting=0
+time=2026-10-23T18:53:09.858+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T18:53:10.118+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-23T18:53:10.900+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-23T18:53:11.434+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=5.72s
+time=2026-10-23T18:53:11.436+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-23T18:53:16.218+05:30 level=INFO msg="rows written" table=inventory.item_price_change_log rows=2 scanned=21
+time=2026-10-23T18:53:16.486+05:30 level=INFO msg="rows written" table=inventory.item_price_master rows=1 scanned=105
+time=2026-10-23T18:53:17.288+05:30 level=INFO msg="sync time set on target" rows=3 tables=2
+time=2026-10-23T18:53:17.833+05:30 level=INFO msg="instant sync complete" tables=inventory.item_price_change_log,inventory.item_price_master rows_written=3 rows_deleted=0 took=6.097s
+time=2026-10-23T18:53:17.835+05:30 level=INFO msg="sync time set on source" rows=3 deletes=0 still_waiting=0
+time=2026-10-23T18:53:27.659+05:30 level=INFO msg="rows written" table=fixed.dropdown_details rows=2 scanned=69
+time=2026-10-23T18:53:27.925+05:30 level=INFO msg="rows written" table=fixed.dropdown_columns rows=7 scanned=214
+time=2026-10-23T18:53:28.205+05:30 level=INFO msg="rows written" table=fixed.grid_details rows=2 scanned=174
+time=2026-10-23T18:53:28.518+05:30 level=INFO msg="rows written" table=fixed.grid_columns rows=13 scanned=2693
+time=2026-10-23T18:53:28.787+05:30 level=INFO msg="rows written" table=fixed.menu_master rows=2 scanned=260
+time=2026-10-23T18:53:29.051+05:30 level=INFO msg="rows written" table=public._erp_seed_history rows=1 scanned=43
+time=2026-10-23T18:53:29.322+05:30 level=INFO msg="rows written" table=public.db_table_master rows=2 scanned=195
+time=2026-10-23T18:53:31.751+05:30 level=INFO msg="sync time set on target" rows=28 tables=6
+time=2026-10-23T18:53:32.563+05:30 level=INFO msg="instant sync complete" tables="fixed.dropdown_details,fixed.dropdown_columns,fixed.grid_details,fixed.grid_columns,fixed.menu_master and 2 more" rows_written=29 rows_deleted=0 took=14.428s
+time=2026-10-23T18:53:32.566+05:30 level=INFO msg="sync time set on source" rows=28 deletes=0 still_waiting=0
+time=2026-10-23T18:53:42.437+05:30 level=INFO msg="rows written" table=audit.audit_screen rows=1 scanned=85
+time=2026-10-23T18:53:43.482+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T18:53:44.262+05:30 level=INFO msg="instant sync complete" tables=audit.audit_screen,inventory.item_colour_master,inventory.item_size_master rows_written=1 rows_deleted=0 took=6.556s
+time=2026-10-23T18:53:44.264+05:30 level=INFO msg="sync time set on source" rows=1 deletes=2 still_waiting=0
+time=2026-10-23T18:56:20.959+05:30 level=INFO msg="rows written" table=audit.audit_log rows=4 scanned=1970
+time=2026-10-23T18:56:44.686+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4200 rows_written=4 rows_deleted=0 took=2m7.137s
+time=2026-10-23T19:01:45.127+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4200 rows_written=0 rows_deleted=0 took=2m7.527s
+time=2026-10-23T19:04:10.505+05:30 level=INFO msg=stopped
+time=2026-10-23T19:04:51.925+05:30 level=INFO msg="vknex-dbsync starting" source=postgres@localhost:5432/ERP target=postgres@127.0.0.1:5433/erp_rehearsal mode=incremental schemas=public,fixed,accounts,sales,stock,inventory,audit,purchase deletes=true ddl=true ddl_drop=true mark_synced=true mark_txn=false interval=5m0s instant=true
+time=2026-10-23T19:04:52.741+05:30 level=INFO msg="instant sync started" instant_tables=122 txn_tables=71
+time=2026-10-23T19:08:30.883+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4200 rows_written=0 rows_deleted=0 took=3m38.958s
+time=2026-10-23T19:09:19.502+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=chk_led_sez_consistency
+time=2026-10-23T19:09:21.278+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=ck_led_tds_pair
+time=2026-10-23T19:10:18.198+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"chk_led_sez_consistency\" CHECK (((led_is_sez = false) OR (((led_gst_party_reg_type)::text = 'REGULAR'::text) AND (led_gstin_no IS NOT NULL) AND (btrim((led_gstin_no)::text) <> ''::text)))) NOT VALID"
+time=2026-10-23T19:10:18.483+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"ck_led_tds_pair\" CHECK (((led_is_tds_applicable = false) OR ((led_tds_deductee_type IS NOT NULL) AND (led_tds_nature_of_payment IS NOT NULL)))) NOT VALID"
+time=2026-10-23T19:10:19.070+05:30 level=INFO msg="sync time set on target" rows=0 tables=1
+time=2026-10-23T19:10:20.361+05:30 level=INFO msg="instant sync complete" tables="accounts.acc_ledger_role,accounts.acc_tender_types,accounts.till_approval_authority,accounts.till_approval_rule,accounts.till_denomination and 117 more" rows_written=0 rows_deleted=0 took=5m23.95s
+time=2026-10-23T19:10:20.364+05:30 level=INFO msg="sync time set on source" rows=0 deletes=0 still_waiting=3
+time=2026-10-23T19:10:25.771+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=38
+time=2026-10-23T19:10:26.892+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T19:10:28.018+05:30 level=INFO msg="instant sync complete" tables=public.user_master rows_written=1 rows_deleted=0 took=7.354s
+time=2026-10-23T19:10:28.030+05:30 level=INFO msg="sync time set on source" rows=1 deletes=0 still_waiting=0
+time=2026-10-23T19:12:08.537+05:30 level=INFO msg="rows written" table=audit.user_login_sessions rows=1 scanned=565
+time=2026-10-23T19:12:34.608+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4201 rows_written=1 rows_deleted=0 took=2m42.682s
+time=2026-10-23T19:17:08.939+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=71 rows_read=4201 rows_written=0 rows_deleted=0 took=2m16.997s
+time=2026-10-23T19:18:15.543+05:30 level=INFO msg=stopped
+time=2026-10-23T19:18:18.277+05:30 level=INFO msg="vknex-dbsync starting" source=postgres@localhost:5432/ERP target=postgres@127.0.0.1:5433/erp_rehearsal mode=incremental schemas=public,fixed,accounts,sales,stock,inventory,audit,purchase deletes=true ddl=true ddl_drop=true mark_synced=true mark_txn=false interval=5m0s instant=true table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM kind_intervals=LOG:1h0m0s mail_to=""
+time=2026-10-23T19:18:18.278+05:30 level=WARN msg="SYNC_TXN_TABLES is ignored: public.db_table_master decides which tables are instant; remove it from .env" tables=71
+time=2026-10-23T19:18:18.278+05:30 level=INFO msg="status page" url=http://127.0.0.1:7645/
+time=2026-10-23T19:18:19.062+05:30 level=WARN msg="instant tables reference interval tables: a new row can reach the live DB before the row it points at, until the next interval run moves that one (without -disable-triggers its instant sync fails and retries until then)" references="accounts.acc_bill_adjustment -> accounts.acc_pdc_register,accounts.acc_bill_adjustment -> accounts.acc_tender_detail,accounts.acc_bill_adjustment -> accounts.acc_voucher_header,accounts.acc_bill_balance -> accounts.acc_voucher_header,sales.loyalty_coupon_txn -> accounts.acc_tender_detail,sales.loyalty_ledger -> accounts.acc_tender_detail"
+time=2026-10-23T19:18:19.071+05:30 level=INFO msg="change notification triggers updated on the source" added=67 removed=3
+time=2026-10-23T19:18:19.071+05:30 level=INFO msg="instant sync started" instant_tables=146 txn_tables=47 table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM
+time=2026-10-23T19:18:46.782+05:30 level=INFO msg=stopped
+time=2026-10-23T19:18:49.596+05:30 level=INFO msg="vknex-dbsync starting" source=postgres@localhost:5432/ERP target=postgres@127.0.0.1:5433/erp_rehearsal mode=incremental schemas=public,fixed,accounts,sales,stock,inventory,audit,purchase deletes=true ddl=true ddl_drop=true mark_synced=true mark_txn=false interval=5m0s instant=true table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM kind_intervals=LOG:1h0m0s mail_to=""
+time=2026-10-23T19:18:49.596+05:30 level=WARN msg="SYNC_TXN_TABLES is ignored: public.db_table_master decides which tables are instant; remove it from .env" tables=71
+time=2026-10-23T19:18:49.596+05:30 level=INFO msg="status page" url=http://127.0.0.1:7645/
+time=2026-10-23T19:18:50.344+05:30 level=WARN msg="instant tables reference interval tables: a new row can reach the live DB before the row it points at, until the next interval run moves that one (without -disable-triggers its instant sync fails and retries until then)" references="accounts.acc_bill_adjustment -> accounts.acc_pdc_register,accounts.acc_bill_adjustment -> accounts.acc_tender_detail,accounts.acc_bill_adjustment -> accounts.acc_voucher_header,accounts.acc_bill_balance -> accounts.acc_voucher_header,sales.loyalty_coupon_txn -> accounts.acc_tender_detail,sales.loyalty_ledger -> accounts.acc_tender_detail"
+time=2026-10-23T19:18:50.346+05:30 level=INFO msg="instant sync started" instant_tables=146 txn_tables=47 table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM
+time=2026-10-23T19:21:20.672+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=47 rows_read=3950 rows_written=0 rows_deleted=0 took=2m31.076s with_kinds=LOG
+time=2026-10-23T19:23:20.898+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=chk_led_sez_consistency
+time=2026-10-23T19:23:22.710+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=ck_led_tds_pair
+time=2026-10-23T19:24:32.637+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"chk_led_sez_consistency\" CHECK (((led_is_sez = false) OR (((led_gst_party_reg_type)::text = 'REGULAR'::text) AND (led_gstin_no IS NOT NULL) AND (btrim((led_gstin_no)::text) <> ''::text)))) NOT VALID"
+time=2026-10-23T19:24:32.930+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"ck_led_tds_pair\" CHECK (((led_is_tds_applicable = false) OR ((led_tds_deductee_type IS NOT NULL) AND (led_tds_nature_of_payment IS NOT NULL)))) NOT VALID"
+time=2026-10-23T19:24:33.753+05:30 level=INFO msg="sync time set on target" rows=282 tables=13
+time=2026-10-23T19:24:36.811+05:30 level=INFO msg="instant sync complete" tables="accounts.acc_ledger_role,accounts.acc_tender_types,accounts.till_approval_authority,accounts.till_approval_rule,accounts.till_denomination and 141 more" rows_written=0 rows_deleted=0 took=5m43.312s
+time=2026-10-23T19:24:36.836+05:30 level=INFO msg="sync time set on source" rows=282 deletes=329 still_waiting=3
+time=2026-10-23T19:24:43.987+05:30 level=INFO msg="rows written" table=inventory.item_group_master rows=1 scanned=128
+time=2026-10-23T19:24:45.161+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-23T19:24:46.327+05:30 level=INFO msg="instant sync complete" tables=inventory.item_group_master rows_written=1 rows_deleted=0 took=9.191s
+time=2026-10-23T19:24:46.339+05:30 level=INFO msg="sync time set on source" rows=1 deletes=0 still_waiting=0
+time=2026-10-23T19:25:50.847+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=1059 rows_written=0 rows_deleted=0 took=2m1.25s
+time=2026-10-23T19:26:11.351+05:30 level=INFO msg=stopped
+time=2026-10-23T19:27:02.021+05:30 level=INFO msg="vknex-dbsync starting" source=postgres@localhost:5432/ERP target=postgres@127.0.0.1:5433/erp_rehearsal mode=incremental schemas=public,fixed,accounts,sales,stock,inventory,audit,purchase deletes=true ddl=true ddl_drop=true mark_synced=true mark_txn=false interval=5m0s instant=true table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM kind_intervals=LOG:1h0m0s mail_to=prathapprasanna269@gmail.com
+time=2026-10-23T19:27:02.021+05:30 level=WARN msg="SYNC_TXN_TABLES is ignored: public.db_table_master decides which tables are instant; remove it from .env" tables=71
+time=2026-10-23T19:27:02.021+05:30 level=INFO msg="status page" url=http://127.0.0.1:7645/
+time=2026-10-23T19:27:02.779+05:30 level=WARN msg="instant tables reference interval tables: a new row can reach the live DB before the row it points at, until the next interval run moves that one (without -disable-triggers its instant sync fails and retries until then)" references="accounts.acc_bill_adjustment -> accounts.acc_pdc_register,accounts.acc_bill_adjustment -> accounts.acc_tender_detail,accounts.acc_bill_adjustment -> accounts.acc_voucher_header,accounts.acc_bill_balance -> accounts.acc_voucher_header,sales.loyalty_coupon_txn -> accounts.acc_tender_detail,sales.loyalty_ledger -> accounts.acc_tender_detail"
+time=2026-10-23T19:27:02.792+05:30 level=INFO msg="instant sync started" instant_tables=146 txn_tables=47 table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM
+time=2026-10-23T19:27:09.428+05:30 level=INFO msg=stopped
+time=2026-10-23T19:27:13.637+05:30 level=INFO msg="mail sent" subject=stopped to=prathapprasanna269@gmail.com
+time=2026-10-23T19:27:16.245+05:30 level=INFO msg="vknex-dbsync starting" source=postgres@localhost:5432/ERP target=postgres@127.0.0.1:5433/erp_rehearsal mode=incremental schemas=public,fixed,accounts,sales,stock,inventory,audit,purchase deletes=true ddl=true ddl_drop=true mark_synced=true mark_txn=false interval=5m0s instant=true table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM kind_intervals=LOG:1h0m0s mail_to=prathapprasanna269@gmail.com
+time=2026-10-23T19:27:16.245+05:30 level=WARN msg="SYNC_TXN_TABLES is ignored: public.db_table_master decides which tables are instant; remove it from .env" tables=71
+time=2026-10-23T19:27:16.245+05:30 level=INFO msg="status page" url=http://127.0.0.1:7645/
+time=2026-10-23T19:27:17.025+05:30 level=WARN msg="instant tables reference interval tables: a new row can reach the live DB before the row it points at, until the next interval run moves that one (without -disable-triggers its instant sync fails and retries until then)" references="accounts.acc_bill_adjustment -> accounts.acc_pdc_register,accounts.acc_bill_adjustment -> accounts.acc_tender_detail,accounts.acc_bill_adjustment -> accounts.acc_voucher_header,accounts.acc_bill_balance -> accounts.acc_voucher_header,sales.loyalty_coupon_txn -> accounts.acc_tender_detail,sales.loyalty_ledger -> accounts.acc_tender_detail"
+time=2026-10-23T19:27:17.038+05:30 level=INFO msg="instant sync started" instant_tables=146 txn_tables=47 table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM
+time=2026-10-23T19:28:53.330+05:30 level=INFO msg=stopped
+time=2026-10-23T19:28:57.466+05:30 level=INFO msg="mail sent" subject=stopped to=prathapprasanna269@gmail.com

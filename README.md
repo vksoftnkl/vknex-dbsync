@@ -7,7 +7,7 @@ It runs as its own small binary, separate from the NestJS backend:
 - only this tool holds both connection strings,
 - a heavy sync never slows down or crashes the live API,
 - it can run once, on a schedule, or as a 24/7 worker,
-- with `-instant`, master tables reach the live DB seconds after a change while transaction tables follow the schedule.
+- with `-instant`, masters, settings, ledgers and balances reach the live DB seconds after a change, transactions every 5 minutes and logs every hour; `public.db_table_master` decides which table is which.
 
 ## Build
 
@@ -31,10 +31,12 @@ internal/
   pg/                 low-level Postgres: connect, identifier/literal quoting, COPY streaming
   schema/             table model; catalog introspection, table selection, FK ordering, schema compare
   ddl/                -ddl: plans the CREATE/ALTER/DROP statements that make the target match the source
+  notify/             -mail-to: mails when a sync fails, works again or the program stops
+  status/             -ui: what the runs report, the status page (embedded HTML) and its small HTTP API
   syncer/             one sync run: snapshot, full / incremental copy, sequences, sync state, -mark-synced
 ```
 
-Dependencies only point down: `cmd` → `syncer` → `ddl` → `schema` → `pg`, `config`.
+Dependencies only point down: `cmd` → `syncer` → `ddl` → `schema` → `pg`, `config`; `notify` and `status` sit beside `ddl` and need only `pg` and `config` (`syncer` reports into `status`, `cmd` serves it).
 
 ## First-time setup
 
@@ -106,9 +108,12 @@ Every flag also reads an environment variable (or `.env`).
 | `-ddl` | `SYNC_DDL` | `false` | Apply the source's structure to the target first (see below) |
 | `-ddl-drop` | `SYNC_DDL_DROP` | `false` | With `-ddl`: also drop target tables, partitions and columns the source no longer has |
 | `-mark-synced` | `SYNC_MARK_SYNCED` | `false` | Set each table's sync column (`…_sync_date`) on both sides after a run (see below) |
-| `-mark-txn` | `SYNC_MARK_TXN` | `true` | With `-mark-synced`, also set it on the `-txn-tables`; `false` = only the master tables |
-| `-instant` | `SYNC_INSTANT` | `false` | Mirror every table not in `-txn-tables` within seconds of a change; needs `-interval` (see below) |
-| `-txn-tables` | `SYNC_TXN_TABLES` | | With `-instant`: comma-separated tables (`table` or `schema.table`) synced only every `-interval` |
+| `-mark-txn` | `SYNC_MARK_TXN` | `true` | With `-mark-synced`, also set it on the interval tables; `false` = only the instant (master) tables |
+| `-instant` | `SYNC_INSTANT` | `false` | Mirror the `-instant-kinds` tables within seconds of a change; needs `-interval` (see below) |
+| `-table-master` | `SYNC_TABLE_MASTER` | `public.db_table_master` | Source table listing the tables by `dtm_kind`, read on every run (see below); empty = use `-txn-tables` |
+| `-instant-kinds` | `SYNC_INSTANT_KINDS` | `MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM` | `dtm_kind` values mirrored within seconds |
+| `-kind-intervals` | `SYNC_KIND_INTERVALS` | `LOG:1h` | `kind:interval` for kinds the interval runs move less often than `-interval` |
+| `-txn-tables` | `SYNC_TXN_TABLES` | | Only with an empty `-table-master`: comma-separated tables (`table` or `schema.table`) synced every `-interval`, all others instant |
 | `-updated-cols` | `SYNC_UPDATED_COLS` | `updatedAt,updated_at` | Change-tracking column names |
 | `-overlap` | `SYNC_OVERLAP` | `5m` | Safety window re-read on each run |
 | `-deletes` | `SYNC_DELETES` | `true` | Mirror deletes |
@@ -118,6 +123,14 @@ Every flag also reads an environment variable (or `.env`).
 | `-meta-schema` | `SYNC_META_SCHEMA` | `vknex_sync` | Schema for sync state on the target |
 | `-log-json` | `SYNC_LOG_JSON` | `false` | JSON log lines |
 | `-log-file` | `SYNC_LOG_FILE` | stdout | Append the logs to this file; without a console (Windows background build) `vknex-dbsync.log` next to the binary |
+| `-ui` | `SYNC_UI` | `127.0.0.1:7645` | With `-interval`: serve the [status page](#status-page--ui) at this `host:port`; empty = none |
+| `-mail-to` | `SYNC_MAIL_TO` | | Comma-separated addresses mailed when a sync fails, works again or the program stops (see below); empty = no mail |
+| `-smtp` | `SYNC_SMTP` | | Mail server `host:port`, e.g. `smtp.gmail.com:587` |
+| `-smtp-user` | `SYNC_SMTP_USER` | | Mail server login; empty = none |
+| `-smtp-password` | `SYNC_SMTP_PASSWORD` | | Mail server password (Gmail: an app password) |
+| `-mail-from` | `SYNC_MAIL_FROM` | `-smtp-user` | Sender address |
+| `-mail-repeat` | `SYNC_MAIL_REPEAT` | `1h` | While a sync keeps failing, mail again at most this often; `0` = once per outage |
+| `-mail-test` | `SYNC_MAIL_TEST` | `false` | Send a test mail to `-mail-to` and exit |
 
 ## Schema changes (`-ddl`)
 
@@ -155,20 +168,36 @@ With `-mark-synced`, an incremental run also copies every row whose sync column 
 2. After the target commits, the same rows on the source get the **same** time — unless the row was edited after the run read it (its row version changed); it stays waiting for the next run. The `sync_deleted_rows` entries of synced tables, up to the run's snapshot, get `sdr_sync_date`.
 3. Rows that break one of their table's `NOT VALID` checks are left waiting on both sides: PostgreSQL refuses any update of them until they are corrected.
 
-With `-mark-txn=false` only the master tables (those not in `-txn-tables`) get the sync time, together with their `sync_deleted_rows` entries; the transaction tables keep `NULL` on both sides. With `-instant` that means every instant sync of a master table stamps its rows on the live DB in the same transaction and on the local DB right after, while the interval runs of the transaction tables stamp nothing.
+With `-mark-txn=false` only the master tables (the instant ones, see [Instant mirroring](#instant-mirroring--instant)) get the sync time, together with their `sync_deleted_rows` entries; the transaction tables keep `NULL` on both sides. With `-instant` that means every instant sync of a master table stamps its rows on the live DB in the same transaction and on the local DB right after, while the interval runs of the transaction tables stamp nothing.
 
 The source stamp runs with triggers off (`session_replication_role = replica`) when the source user is a superuser, so it is not recorded as a change in the audit log. Only turn this on when the target is the real live database: on a test copy it would mark local rows as sent to live when they are not.
 
 ## Instant mirroring (`-instant`)
 
-With `-instant` (and `-interval`), the synced tables are split in two:
+With `-instant` (and `-interval`), each table is synced on the schedule of its kind:
 
-- **Transaction tables**, listed in `-txn-tables` (bills, vouchers, stock movements, logs): synced by the interval runs, e.g. every 5 minutes.
-- **Every other table** (masters, settings): inserts, updates and deletes reach the target a few seconds after they are committed locally.
+- **Instant tables**: inserts, updates and deletes reach the target a few seconds after they are committed locally.
+- **Interval tables**: synced by the interval runs, e.g. every 5 minutes, or less often for a kind with its own interval.
+
+### Which table is synced when: `public.db_table_master`
+
+The schedule comes from `dtm_kind` in `public.db_table_master` on the source, not from a list in `.env`. It is read in every run's snapshot, so a table added or re-categorised there is picked up without touching the configuration. The defaults:
+
+| `dtm_kind` | Synced |
+|---|---|
+| `MASTER`, `SETTING`, `METADATA`, `LEDGER`, `BALANCE`, `SYSTEM` (`-instant-kinds`) | instantly, partitioned tables included |
+| `TRANSACTION`, any other kind, inactive rows (`dtm_is_active = false`), tables missing from `db_table_master` | every `-interval` (5 minutes) |
+| `LOG` (`-kind-intervals LOG:1h`) | by the interval run nearest to each hour; after a restart, by the first run |
+
+`db_table_master` carries the notify trigger too: adding or changing a row there (say a `dtm_kind` from `TRANSACTION` to `MASTER`) re-sorts the tables within seconds, without a restart; a table that becomes instant is synced at once (`instant tables changed` in the log). A new table is created on the live DB by the next interval run (`-ddl`) and mirrored instantly from then on. `-dry-run` shows each table's `kind` and `sync` (`instant`, `every 5m0s`, `every 1h0m0s`); the interval runs that move the `LOG` tables log `with_kinds=LOG`.
+
+A foreign key from an instant table to an interval table (e.g. `accounts.acc_bill_balance` → `accounts.acc_voucher_header`) means a new instant row can reach the live DB before the row it points at, until the next interval run moves that one. With `-disable-triggers` the live DB accepts it in the meantime; without, the instant sync of that table fails and is retried until then. Such references are listed in a warning when the instant sync starts.
+
+`-table-master ""` (an empty `SYNC_TABLE_MASTER=`) turns `db_table_master` off: every table is then instant except those listed in `-txn-tables`, which is ignored otherwise.
 
 How it works:
 
-1. On start, the tool puts a statement trigger `zz_vknex_sync_notify` on every instant table of the **source**, calling `vknex_sync.notify_change()`. When a transaction that changed the table commits, the trigger sends the table's name on the `vknex_sync` channel (`pg_notify`). Tables that are moved to `-txn-tables` or excluded lose the trigger.
+1. On start, the tool puts a statement trigger `zz_vknex_sync_notify` on every instant table of the **source**, on each of its partitions and on `-table-master`, calling `vknex_sync.notify_change()`. When a transaction that changed the table commits, the trigger sends the table's name on the `vknex_sync` channel (`pg_notify`); a partition's trigger sends its partitioned table's name. Tables that are moved to the interval runs or excluded lose the trigger.
 2. A listener on that channel waits 0.3 s for the rest of the save, then runs an incremental sync of just the tables named, in one transaction on the target. It has its own advisory lock, so it runs alongside an interval run.
 3. On start, and after losing the source connection, every instant table is synced once to catch up on changes made while nothing was listening.
 4. Schema changes (`-ddl`) stay with the interval runs. An interval run that has schema changes to apply moves **every** table, not just the transaction tables, so that the constraints, indexes and `NOT NULL` it adds after the data find every table current. Instant syncs pause while it runs (`instant sync paused` … `resumed`). An instant table whose structure changed locally waits for that run (logged as a warning). New tables get the trigger after it.
@@ -179,7 +208,7 @@ A change takes 0.3 s plus one sync of its table, about 9 round trips: well under
 Things to know:
 
 - With `-disable-triggers` the target does not check foreign keys. Deleting a master row locally (after its transactions) removes it from the live DB at once, while the live transaction rows that point at it stay until the next interval run deletes them. Without `-disable-triggers` that delete fails and is retried until the interval run has removed them.
-- Statement triggers on a partitioned table do not fire for statements on a partition, so keep partitioned tables in `-txn-tables`.
+- A statement trigger on a partitioned table does not fire for a statement that names one of its partitions; that is why the partitions carry the trigger too. A partition created later (the next fiscal year) gets it on the next start or `db_table_master` change; until then, changes made through the partitioned table itself (what the application does) are still noticed.
 - `vknex_sync.run_log` gets a row for every instant run (`mode = 'instant'`).
 - To take the triggers off the local database: `DROP SCHEMA vknex_sync CASCADE;` on the source.
 
@@ -202,7 +231,7 @@ RestartSec=30
 WantedBy=multi-user.target
 ```
 
-**Linux desktop, click to start**: run `deploy/linux/install.sh` once. It builds the binary, adds a systemd user service (`~/.config/systemd/user/vknex-dbsync.service`, settings from `.env`, logs appended to `vknex-dbsync.log`, restarted 30 s after a crash) and a "VK Nex DB Sync" icon on the desktop and in the app grid. Click the icon to start the sync in the background; right-click it for Stop and Show log.
+**Linux desktop, click to open**: run `deploy/linux/install.sh` once. It builds the binary, adds a systemd user service (`~/.config/systemd/user/vknex-dbsync.service`, settings from `.env`, logs appended to `vknex-dbsync.log`, restarted 30 s after a crash) and a "VK Nex DB Sync" icon on the desktop and in the app grid. Click the icon to open the [status page](#status-page--ui) in the browser; when the sync is not running, it is started first. Right-click the icon for Start in the background (no browser), Stop and Show log. Run the installer again after changing the code or moving the project folder: it restarts a running sync so that the new build is used.
 
 The installer also makes it start whenever the computer boots, before anyone logs in: it enables the service and turns on lingering for the user (`loginctl enable-linger`), which runs the user's services from boot instead of from the first login. Until the local Postgres, the network and the tunnel are up, the runs fail and are retried (instant sync within a minute, the interval run on the next interval). To stop starting it automatically: `systemctl --user disable vknex-dbsync.service`. If the installer warns that lingering could not be enabled, it starts at login only until you run `sudo loginctl enable-linger $USER`.
 
@@ -211,13 +240,37 @@ When the live database is only reachable through SSH, pass the `~/.ssh/config` h
 **Windows, double-click**: build with `-ldflags "-H=windowsgui"` (see Build) and put `vknex-dbsync.exe` and `.env` (with `SYNC_INTERVAL=5m`) in one folder. Double-clicking the exe starts it in the background with no window:
 
 - logs go to `vknex-dbsync.log` in that folder; startup errors (bad `.env`) pop up in a message box,
-- a second double-click only reports that it is already running,
+- a second double-click opens the [status page](#status-page--ui) in the browser (with `SYNC_UI=` empty it only reports that it is already running),
 - to start it with Windows: `Win+R` → `shell:startup` → put a shortcut to the exe there,
 - to stop it: Task Manager → Details → `vknex-dbsync.exe` → End task, or `taskkill /IM vknex-dbsync.exe /F`. An open sync transaction is rolled back by the server.
 
 **Windows, other ways**: Task Scheduler running `vknex-dbsync.exe` every 5 minutes (without `-interval`), or wrap the console build `vknex-dbsync.exe -interval 5m` as a service with NSSM.
 
 **PM2** (if you already use it): `pm2 start ./vknex-dbsync --name dbsync -- -interval 5m`
+
+## Status page (`-ui`)
+
+While it runs with `-interval`, the sync serves a small web page at `-ui` (default `http://127.0.0.1:7645/`, reachable from this machine only; `SYNC_UI=` turns it off). On Linux the desktop icon opens it; on Windows a second double-click on the running exe does. It refreshes itself every 2 seconds and shows:
+
+- **Status**: running, a run in progress, the last run failed, the instant sync paused, retrying or down, each with the error text.
+- **Last run / next run**: when, how long it took, tables and rows written and deleted, and a countdown to the next interval run. **Sync now** starts an interval run right away instead of waiting.
+- **Instant sync**: listening, syncing or retrying, how many tables are instant and how many follow the interval, the last change synced and the tables waiting for a retry.
+- **Tables**: every synced table with its `dtm_kind`, when it is synced (instant, every 5m, every 1h), its last-synced time on the live database (`vknex_sync.table_state`) and notes such as "no primary key: replaced on each run", with a filter.
+- **Run history**: the last 100 rows of `vknex_sync.run_log` on the live database.
+- **Log**: the last 300 log lines, with a switch for warnings and errors only.
+- **Settings**: the configuration the process runs with, without passwords.
+
+The page reads `table_state` and `run_log` from the live database at most every 5 seconds; everything else comes from the process itself. Nothing on it changes data: the only action is "Sync now". `-dry-run` and a single run (no `-interval`) serve no page. To reach it from another machine, set `SYNC_UI=0.0.0.0:7645` and open the port in the firewall, keeping in mind that the page has no login.
+
+## Mail when it fails or stops (`-mail-to`)
+
+With `-mail-to` (comma-separated addresses) the sync sends a plain-text mail, subject `[vknex-dbsync] … on <host>`, with the error, `source -> target` and the log file:
+
+- **sync failed** / **instant sync failed**: a run failed (tunnel down, Postgres restarting, a constraint, …). One mail when it starts failing, then one every `-mail-repeat` (default `1h`, `0` = none) while it keeps failing, so a dead tunnel does not mail on every retry.
+- **sync recovered** / **instant sync recovered**: the first run that works again after a failure mail. Only with `-interval`: a run-once process (Task Scheduler) mails every failed run and nothing else.
+- **stopped**: the program ended. Ctrl-C, `systemctl stop`, the desktop icon's Stop, Task Manager > End task, or a crash (the mail carries the stack trace; the Linux service starts it again after 30 s). A `kill -9`, a power cut or a machine that dies cannot send anything.
+
+The mails go through `-smtp` (`host:port`) as `-smtp-user` / `-smtp-password`, from `-mail-from` (default: the user). Port 465 is TLS from the start, any other port uses STARTTLS when the server offers it. Gmail: `smtp.gmail.com:587`, the Gmail address as user and an **app password** (Google account → Security → 2-Step Verification → App passwords), not the account password. After filling in `.env`, `vknex-dbsync -mail-test` sends a test mail and exits. Incomplete mail settings are a configuration error and the program does not start: `-mail-to` needs `-smtp`, and `-mail-from` when the user is not an address. `-dry-run` never mails.
 
 ## Things to know
 

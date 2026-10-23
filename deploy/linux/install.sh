@@ -58,7 +58,9 @@ $deps
 
 [Service]
 WorkingDirectory=$repo
-ExecStart="$repo/vknex-dbsync"
+# -log-file so that the status page knows the file and shows its last lines; the
+# append: below only catches what is printed before the log is open (a bad .env)
+ExecStart="$repo/vknex-dbsync" -log-file "$repo/vknex-dbsync.log"
 StandardOutput=append:$repo/vknex-dbsync.log
 StandardError=inherit
 Restart=on-failure
@@ -74,11 +76,15 @@ cat >"$app" <<EOF
 [Desktop Entry]
 Type=Application
 Name=VK Nex DB Sync
-Comment=Sync the local database to the live database in the background
+Comment=Open the sync's status page; starts the sync in the background when it is not running
 Icon=emblem-synchronizing
-Exec="$repo/deploy/linux/control.sh" start
+Exec="$repo/deploy/linux/control.sh" open
 Terminal=false
-Actions=stop;log;
+Actions=start;stop;log;
+
+[Desktop Action start]
+Name=Start in the background
+Exec="$repo/deploy/linux/control.sh" start
 
 [Desktop Action stop]
 Name=Stop
@@ -90,6 +96,12 @@ Exec="$repo/deploy/linux/control.sh" log
 EOF
 
 systemctl --user daemon-reload
+
+# A running sync keeps the old binary until it is restarted.
+if systemctl --user is-active --quiet vknex-dbsync.service; then
+	systemctl --user restart vknex-dbsync.service
+	echo "Restarted the running sync so that it uses the new build."
+fi
 
 # Enabled user services start with the user's service manager, which runs from
 # boot (not from the first login) only when the user lingers. Until the local
@@ -104,7 +116,7 @@ if [ -d "$HOME/Desktop" ]; then
 	gio set "$HOME/Desktop/vknex-dbsync.desktop" metadata::trusted true 2>/dev/null || true
 fi
 
-echo "Installed. Click \"VK Nex DB Sync\" on the desktop or in the app grid to start it."
+echo "Installed. Click \"VK Nex DB Sync\" on the desktop or in the app grid: it starts the sync when needed and opens its status page."
 [ -z "$tunnel_host" ] || echo "Starting it also opens the SSH tunnel to $tunnel_host (vknex-dbsync-tunnel.service)."
 if [ -n "$boot" ]; then
 	echo "It also starts by itself whenever the computer boots, before anyone logs in."

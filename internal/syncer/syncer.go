@@ -14,8 +14,10 @@ import (
 
 	"github.com/vksoftwares/vknex-dbsync/internal/config"
 	"github.com/vksoftwares/vknex-dbsync/internal/ddl"
+	"github.com/vksoftwares/vknex-dbsync/internal/notify"
 	"github.com/vksoftwares/vknex-dbsync/internal/pg"
 	"github.com/vksoftwares/vknex-dbsync/internal/schema"
+	"github.com/vksoftwares/vknex-dbsync/internal/status"
 )
 
 // Any constants work; they only stop two syncs of the same kind from writing
@@ -29,13 +31,25 @@ const (
 
 // Syncer mirrors the source database into the target, one run at a time.
 type Syncer struct {
-	cfg *config.Config
-	log *slog.Logger
+	Status *status.Status // what the runs report for the status page (-ui); nil = no page
+
+	cfg      *config.Config
+	log      *slog.Logger
+	notify   *notify.Notifier     // mails when the instant sync fails and recovers; nil without -mail-to
+	slowDone map[string]time.Time // -kind-intervals kind -> start of the last run that moved it
 }
 
-// New returns a Syncer for cfg that logs to log.
-func New(cfg *config.Config, log *slog.Logger) *Syncer {
-	return &Syncer{cfg: cfg, log: log}
+// New returns a Syncer for cfg that logs to log and mails through n (may be nil).
+func New(cfg *config.Config, log *slog.Logger, n *notify.Notifier) *Syncer {
+	return &Syncer{cfg: cfg, log: log, notify: n, slowDone: map[string]time.Time{}}
+}
+
+// due reports whether this interval run moves the tables of kind: always,
+// unless -kind-intervals gives the kind an interval of its own that has not
+// passed yet (the run nearest to it counts). After a restart every kind is due.
+func (s *Syncer) due(kind string) bool {
+	every, ok := s.cfg.KindIntervals[kind]
+	return !ok || time.Since(s.slowDone[kind]) >= every-s.cfg.Interval/2
 }
 
 type runStats struct {
@@ -48,11 +62,15 @@ type runStats struct {
 
 // RunOnce performs one complete, atomic sync. Either every table on the target
 // is updated in one transaction, or nothing changes. With -instant it moves the
-// data of the -txn-tables only (Watch mirrors the others), unless it changes
-// the schema: then every table, while Watch waits.
-func (s *Syncer) RunOnce(ctx context.Context) error {
+// data of the interval tables only (Table.Txn; Watch mirrors the others), and
+// a -kind-intervals kind only when it is due, unless it changes the schema:
+// then every table, while Watch waits.
+func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 	started := time.Now()
 	cfg := s.cfg
+	run := status.Run{Mode: cfg.Mode, StartedAt: started.UnixMilli()}
+	s.Status.RunStarted(started)
+	defer func() { s.Status.RunFinished(run, err) }()
 
 	src, err := pg.Connect(ctx, cfg.SourceURL)
 	if err != nil {
@@ -93,15 +111,20 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
+	kinds, err := schema.LoadKinds(ctx, srcTx, cfg)
+	if err != nil {
+		return err
+	}
 	dstAll, dstInfo, err := readTarget(ctx, dst, cfg)
 	if err != nil {
 		return err
 	}
 
-	tables := schema.Select(srcAll, cfg)
+	tables := schema.Select(srcAll, cfg, kinds)
 	if len(tables) == 0 {
 		return errors.New("no tables selected; check -schema / -include / -exclude")
 	}
+	s.reportTables(tables)
 
 	changes := &ddl.Plan{}
 	if cfg.DDL {
@@ -119,14 +142,22 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 		}
 	}
 
-	// The tables whose data this run moves. Constraints and NOT NULL added after
-	// the data need every table's rows current, so a run that changes the schema
-	// moves them all. A dry run shows them all.
+	// The tables whose data this run moves: with -instant the interval tables
+	// only, and a -kind-intervals kind only when it is due. Constraints and NOT
+	// NULL added after the data need every table's rows current, so a run that
+	// changes the schema moves them all. A dry run shows them all.
 	data := tables
-	whole := !cfg.Instant || cfg.DryRun || changes.Count() > 0
+	whole := cfg.DryRun || changes.Count() > 0
 	if !whole {
-		data = schema.Subset(tables, func(t *schema.Table) bool { return cfg.Txn(t.Schema, t.Name) })
+		data = schema.Subset(tables, func(t *schema.Table) bool { return (t.Txn || !cfg.Instant) && s.due(t.Kind) })
 	}
+	var slow []string // the -kind-intervals kinds this run moves
+	for _, t := range data {
+		if _, ok := cfg.KindIntervals[t.Kind]; ok && !slices.Contains(slow, t.Kind) {
+			slow = append(slow, t.Kind)
+		}
+	}
+	slices.Sort(slow)
 	order, err := s.order(data)
 	if err != nil {
 		return err
@@ -174,6 +205,7 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 	defer dstTx.Rollback(context.Background())
 	if !locked {
 		s.log.Warn("another sync is already running against this target; skipping this run")
+		run.Skipped = true
 		return nil
 	}
 	if cfg.Instant && whole {
@@ -228,7 +260,7 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 	var handOver []string
 	if cfg.Instant {
 		for name := range changes.Reset {
-			if t := tables[name]; t != nil && !cfg.Txn(t.Schema, t.Name) {
+			if t := tables[name]; t != nil && !t.Txn {
 				handOver = append(handOver, name)
 			}
 		}
@@ -238,15 +270,24 @@ func (s *Syncer) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	for _, kind := range slow {
+		s.slowDone[kind] = started
+	}
 
-	s.log.Info("sync complete",
+	done := []any{
 		"mode", cfg.Mode,
 		"schema_changes", changes.Count(),
 		"tables", st.Tables,
 		"rows_read", st.Copied,
 		"rows_written", st.Upserted,
 		"rows_deleted", st.Deleted,
-		"took", time.Since(started).Round(time.Millisecond).String())
+		"took", time.Since(started).Round(time.Millisecond).String()}
+	if len(slow) > 0 {
+		done = append(done, "with_kinds", strings.Join(slow, ","))
+	}
+	s.log.Info("sync complete", done...)
+	run.SchemaChanges, run.Tables, run.WithKinds = changes.Count(), st.Tables, slow
+	run.RowsRead, run.RowsWritten, run.RowsDeleted = st.Copied, st.Upserted, st.Deleted
 
 	if err := srcTx.Rollback(ctx); err != nil { // end the read-only snapshot
 		return err

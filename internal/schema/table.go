@@ -55,6 +55,7 @@ type Index struct {
 
 // Partition is one partition below a partitioned table, at any depth.
 type Partition struct {
+	Key     string // schema.name, unquoted (see Key)
 	Name    string // quoted schema.name
 	Parent  string // quoted schema.name of the direct parent
 	Bound   string // FOR VALUES ... or DEFAULT
@@ -74,6 +75,8 @@ type Table struct {
 	Break       []string    // FK columns written as NULL first, filled in later (cycles)
 	UpdatedCol  *Column
 	SyncCol     *Column // set with -mark-synced: the column holding the last sync time
+	Kind        string  // dtm_kind in -table-master; "" when it does not list the table (or no -table-master)
+	Txn         bool    // -instant leaves the table to the -interval runs (see classify)
 	TextCopy    bool
 	PartKey     string // PARTITION BY clause of a partitioned table
 	Partitions  []Partition

@@ -119,6 +119,7 @@ ORDER BY 1, 2`
 
 const partitionSQL = `
 SELECT rn.nspname || '.' || r.relname,
+       n.nspname || '.' || c.relname,
        format('%I.%I', n.nspname, c.relname),
        format('%I.%I', pn.nspname, p.relname),
        pg_get_expr(c.relpartbound, c.oid),
@@ -274,7 +275,7 @@ func Load(ctx context.Context, q pg.Querier, schemas []string) (map[string]*Tabl
 	for ptRows.Next() {
 		var root string
 		var p Partition
-		if err := ptRows.Scan(&root, &p.Name, &p.Parent, &p.Bound, &p.PartKey); err != nil {
+		if err := ptRows.Scan(&root, &p.Key, &p.Name, &p.Parent, &p.Bound, &p.PartKey); err != nil {
 			ptRows.Close()
 			return nil, err
 		}
