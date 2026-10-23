@@ -149,7 +149,7 @@ Safety:
 
 The source tracks its own changes: each table has a sync column (the first timestamp column ending in `sync_date`, `sync_on`, `synced_on` or `syncdate`, the same rule as the `public.v_sync_tables` view). A `zz_sync_mark_dirty` trigger empties it whenever a row changes, so `NULL` means "not on the live DB yet". Deletes are logged in `public.sync_deleted_rows` with `sdr_sync_date` `NULL`.
 
-With `-mark-synced`, after the data:
+With `-mark-synced`, an incremental run also copies every row whose sync column is empty, even when its change column (`updated_at`) did not move: a row edited without touching `updated_at` still reaches the live DB before it is stamped. After the data:
 
 1. On the target, in the sync transaction, every row with an empty sync column gets the sync time.
 2. After the target commits, the same rows on the source get the **same** time — unless the row was edited after the run read it (its row version changed); it stays waiting for the next run. The `sync_deleted_rows` entries of synced tables, up to the run's snapshot, get `sdr_sync_date`.
@@ -202,9 +202,11 @@ RestartSec=30
 WantedBy=multi-user.target
 ```
 
-**Linux desktop, click to start**: run `deploy/linux/install.sh` once. It builds the binary, adds a systemd user service (`~/.config/systemd/user/vknex-dbsync.service`, settings from `.env`, logs appended to `vknex-dbsync.log`, restarted 30 s after a crash) and a "VK Nex DB Sync" icon on the desktop and in the app grid. Click the icon to start the sync in the background; right-click it for Stop and Show log. `systemctl --user enable vknex-dbsync.service` also starts it at every login.
+**Linux desktop, click to start**: run `deploy/linux/install.sh` once. It builds the binary, adds a systemd user service (`~/.config/systemd/user/vknex-dbsync.service`, settings from `.env`, logs appended to `vknex-dbsync.log`, restarted 30 s after a crash) and a "VK Nex DB Sync" icon on the desktop and in the app grid. Click the icon to start the sync in the background; right-click it for Stop and Show log.
 
-When the live database is only reachable through SSH, pass the `~/.ssh/config` host whose `LocalForward` opens the tunnel: `deploy/linux/install.sh erp-vps`. That adds `vknex-dbsync-tunnel.service` (`ssh -N erp-vps`, reconnected 10 s after it drops), which starts and stops with the sync. Point `SYNC_TARGET_URL` at the forwarded local port (e.g. `127.0.0.1:5433`), not at `127.0.0.1:5432`: that is this machine's own Postgres, and the sync fails with `database "erp_rehearsal" does not exist`.
+The installer also makes it start whenever the computer boots, before anyone logs in: it enables the service and turns on lingering for the user (`loginctl enable-linger`), which runs the user's services from boot instead of from the first login. Until the local Postgres, the network and the tunnel are up, the runs fail and are retried (instant sync within a minute, the interval run on the next interval). To stop starting it automatically: `systemctl --user disable vknex-dbsync.service`. If the installer warns that lingering could not be enabled, it starts at login only until you run `sudo loginctl enable-linger $USER`.
+
+When the live database is only reachable through SSH, pass the `~/.ssh/config` host whose `LocalForward` opens the tunnel: `deploy/linux/install.sh erp-vps`. That adds `vknex-dbsync-tunnel.service` (`ssh -N erp-vps`, reconnected 10 s after it drops), which starts and stops with the sync. At boot nobody is logged in, so the host's key must work without a passphrase or the desktop's ssh-agent. Point `SYNC_TARGET_URL` at the forwarded local port (e.g. `127.0.0.1:5433`), not at `127.0.0.1:5432`: that is this machine's own Postgres, and the sync fails with `database "erp_rehearsal" does not exist`.
 
 **Windows, double-click**: build with `-ldflags "-H=windowsgui"` (see Build) and put `vknex-dbsync.exe` and `.env` (with `SYNC_INTERVAL=5m`) in one folder. Double-clicking the exe starts it in the background with no window:
 

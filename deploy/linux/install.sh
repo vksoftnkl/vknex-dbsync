@@ -1,15 +1,17 @@
 #!/bin/sh
 # Sets up vknex-dbsync for the current Linux desktop user: builds the binary,
 # adds a systemd user service that runs it in the background (settings from
-# .env, logs appended to vknex-dbsync.log) and a "VK Nex DB Sync" icon in the
-# app grid and on the desktop. Run it again after moving the project folder.
+# .env, logs appended to vknex-dbsync.log) and starts it whenever the computer
+# boots, plus a "VK Nex DB Sync" icon in the app grid and on the desktop. Run
+# it again after moving the project folder.
 #
 #   install.sh [ssh-host]
 #
 # With an ssh host (e.g. erp-vps) it also adds vknex-dbsync-tunnel.service,
 # which keeps "ssh -N <host>" open while the sync runs and reconnects when it
 # drops. The host's LocalForward in ~/.ssh/config must forward the port that
-# SYNC_TARGET_URL uses, and its key must work without a passphrase prompt.
+# SYNC_TARGET_URL uses, and its key must work without a passphrase prompt or
+# the desktop's ssh-agent: at boot nobody is logged in yet.
 set -eu
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -89,6 +91,13 @@ EOF
 
 systemctl --user daemon-reload
 
+# Enabled user services start with the user's service manager, which runs from
+# boot (not from the first login) only when the user lingers. Until the local
+# Postgres, the network or the tunnel is up, the runs fail and are retried.
+systemctl --user enable vknex-dbsync.service
+boot=yes
+loginctl enable-linger "$(id -un)" || boot=
+
 if [ -d "$HOME/Desktop" ]; then
 	cp "$app" "$HOME/Desktop/vknex-dbsync.desktop"
 	chmod +x "$HOME/Desktop/vknex-dbsync.desktop"
@@ -97,4 +106,9 @@ fi
 
 echo "Installed. Click \"VK Nex DB Sync\" on the desktop or in the app grid to start it."
 [ -z "$tunnel_host" ] || echo "Starting it also opens the SSH tunnel to $tunnel_host (vknex-dbsync-tunnel.service)."
-echo "To also start it at every login: systemctl --user enable vknex-dbsync.service"
+if [ -n "$boot" ]; then
+	echo "It also starts by itself whenever the computer boots, before anyone logs in."
+else
+	echo "warning: could not enable lingering, so it starts at login, not at boot. Fix: sudo loginctl enable-linger $(id -un)" >&2
+fi
+echo "To stop starting it automatically: systemctl --user disable vknex-dbsync.service"

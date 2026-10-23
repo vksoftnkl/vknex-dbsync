@@ -151,11 +151,19 @@ func hint(err error) error {
 	return err
 }
 
-func (s *Syncer) changedSince(c *schema.Column, since time.Time) string {
+// changedSince selects t's rows changed since the watermark. With -mark-synced
+// a row waiting for the sync (the source's trigger emptied its sync column) goes
+// along even when its change column did not move, so that the stamp always
+// lands on a current copy of it.
+func (s *Syncer) changedSince(t *schema.Table, since time.Time) string {
+	c := t.UpdatedCol
 	lit := pg.Literal(since.UTC().Format("2006-01-02 15:04:05.999999") + "+00")
 	bound := lit + "::timestamptz"
 	if strings.Contains(c.Type, "without time zone") {
 		bound = fmt.Sprintf("(%s::timestamptz AT TIME ZONE %s)", lit, pg.Literal(s.cfg.NaiveTZ))
+	}
+	if t.SyncCol != nil {
+		return fmt.Sprintf("(%s >= %s OR %s IS NULL OR %s IS NULL)", pg.Ident(c.Name), bound, pg.Ident(c.Name), pg.Ident(t.SyncCol.Name))
 	}
 	return fmt.Sprintf("(%s >= %s OR %s IS NULL)", pg.Ident(c.Name), bound, pg.Ident(c.Name))
 }

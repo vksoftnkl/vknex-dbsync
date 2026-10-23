@@ -41,7 +41,7 @@ func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tab
 		}
 		where := ""
 		if since, ok := state[name]; ok && t.UpdatedCol != nil {
-			where = s.changedSince(t.UpdatedCol, since.Add(-s.cfg.Overlap))
+			where = s.changedSince(t, since.Add(-s.cfg.Overlap))
 		}
 		stageOf[name] = fmt.Sprintf("_sync_s_%d", i)
 		n, err := s.stage(ctx, srcPg, dst, t, stageOf[name], t.ColNames(), where)

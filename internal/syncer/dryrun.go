@@ -42,7 +42,7 @@ func (s *Syncer) plan(ctx context.Context, srcTx pgx.Tx, dst *pgx.Conn, tables m
 			how = "compare whole table (no updatedAt column)"
 		default:
 			if since, ok := state[name]; ok {
-				where = s.changedSince(t.UpdatedCol, since.Add(-s.cfg.Overlap))
+				where = s.changedSince(t, since.Add(-s.cfg.Overlap))
 				how = "changed since " + since.Add(-s.cfg.Overlap).Format(time.RFC3339)
 			} else {
 				how = "first run: all rows"
