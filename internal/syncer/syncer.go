@@ -27,6 +27,7 @@ const (
 	advisoryLockKey int64 = 0x564B4E4558 // "VKNEX"
 	instantLockKey  int64 = advisoryLockKey + 1
 	metaLockKey     int64 = advisoryLockKey + 2 // see ensureMeta
+	pullLockKey     int64 = advisoryLockKey + 3 // -two-way: one pull at a time, apart from the pushes
 )
 
 // Syncer mirrors the source database into the target, one run at a time.
@@ -64,7 +65,8 @@ type runStats struct {
 // is updated in one transaction, or nothing changes. With -instant it moves the
 // data of the interval tables only (Table.Txn; Watch mirrors the others), and
 // a -kind-intervals kind only when it is due, unless it changes the schema:
-// then every table, while Watch waits.
+// then every table, while Watch waits. With -two-way and without -instant it
+// first pulls the live changes (see pull); with -instant, watchLive does.
 func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 	started := time.Now()
 	cfg := s.cfg
@@ -90,6 +92,22 @@ func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 	if _, err := dst.Exec(ctx, "SELECT now() AT TIME ZONE $1", cfg.NaiveTZ); err != nil {
 		return fmt.Errorf("invalid -naive-tz %q: %w", cfg.NaiveTZ, err)
 	}
+	if cfg.TwoWay && !cfg.Instant && !cfg.DryRun {
+		// Before the snapshot, so that this run pushes what it pulled. A failed
+		// pull holds up nothing: the push leaves those live rows alone.
+		err := s.ensureMeta(ctx, dst)
+		if err == nil {
+			err = s.pull(ctx, src, dst)
+		}
+		switch {
+		case err == nil:
+			s.notify.Recovered("two-way pull")
+		case errors.Is(err, errBusy): // another sync pulls
+		default:
+			s.log.Error("pull from the live DB failed; its changes wait for the next run", "err", err)
+			s.notify.Failed("two-way pull", err)
+		}
+	}
 
 	srcTx, snapshot, err := beginSnapshot(ctx, src)
 	if err != nil {
@@ -111,7 +129,7 @@ func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 	}); err != nil {
 		return err
 	}
-	kinds, err := schema.LoadKinds(ctx, srcTx, cfg)
+	master, err := schema.LoadMaster(ctx, srcTx, cfg)
 	if err != nil {
 		return err
 	}
@@ -120,9 +138,12 @@ func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 		return err
 	}
 
-	tables := schema.Select(srcAll, cfg, kinds)
+	tables, warnings := schema.Select(srcAll, cfg, master)
 	if len(tables) == 0 {
 		return errors.New("no tables selected; check -schema / -include / -exclude")
+	}
+	for _, w := range warnings {
+		s.log.Warn("sync column", "detail", w)
 	}
 	s.reportTables(tables)
 
@@ -183,6 +204,11 @@ func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 		}
 		if cfg.MarkSynced {
 			s.log.Info("DRY RUN: sync time would be set", "rows", marks.count(), "tables", len(marks.rows), "deletes_up_to_id", marks.deletesUpTo)
+		}
+		if cfg.TwoWay {
+			if err := s.planPull(ctx, dst, data); err != nil {
+				return err
+			}
 		}
 		return s.plan(ctx, srcTx, dst, data, order, changes.Reset)
 	}
@@ -245,7 +271,7 @@ func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 			for name := range changes.Reset {
 				delete(state, name)
 			}
-			err = s.incremental(ctx, src, dstTx, data, order, state, &st)
+			err = s.incremental(ctx, src, dstTx, data, order, state, snapshot, &st)
 		}
 	}
 	if err != nil {
@@ -269,6 +295,13 @@ func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 	syncedAt, err := s.finish(ctx, dstTx, data, marks, srcSeq, snapshot, started, cfg.Mode, &st)
 	if err != nil {
 		return err
+	}
+	if cfg.TwoWay && (!cfg.Instant || changes.Count() > 0) {
+		// After the commit, so that tables this run created have the trigger
+		// put on. With -instant, Watch keeps the triggers current otherwise.
+		if err := s.ensureCapture(ctx, dst, twoWayOf(tables)); err != nil {
+			s.log.Warn("could not update the change capture on the live DB; the next run retries", "err", err)
+		}
 	}
 	for _, kind := range slow {
 		s.slowDone[kind] = started
@@ -353,6 +386,9 @@ func (s *Syncer) begin(ctx context.Context, dst *pgx.Conn, key int64) (tx pgx.Tx
 	if s.cfg.DisableTriggers {
 		batch.Queue("SET LOCAL session_replication_role = replica")
 	}
+	if s.cfg.TwoWay {
+		batch.Queue(fmt.Sprintf("SET LOCAL %s = on", applyingSetting)) // the capture trigger leaves these writes out
+	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		tx.Rollback(context.Background())
 		return nil, false, fmt.Errorf("prepare target transaction: %w", err)
@@ -378,10 +414,10 @@ func waitLock(ctx context.Context, tx pgx.Tx, key int64, restore time.Duration) 
 func (s *Syncer) finish(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, marks *syncMarks, srcSeq map[seqKey]int64,
 	snapshot, started time.Time, mode string, st *runStats) (time.Time, error) {
 	syncedAt := time.Now().Truncate(time.Microsecond)
-	if err := s.markTarget(ctx, tx, tables, marks, syncedAt); err != nil {
+	if err := s.markTarget(ctx, tx, tables, marks, snapshot, syncedAt); err != nil {
 		return syncedAt, err
 	}
-	if err := setSequences(ctx, tx, tables, srcSeq); err != nil {
+	if err := s.setSequences(ctx, tx, tables, srcSeq, true); err != nil {
 		return syncedAt, err
 	}
 	if err := s.saveState(ctx, tx, tables, mode, snapshot, started, st); err != nil {

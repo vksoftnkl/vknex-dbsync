@@ -103,6 +103,10 @@ func main() {
 		"table_master", cfg.TableMaster,
 		"instant_kinds", strings.Join(cfg.InstantKinds, ","),
 		"kind_intervals", kindIntervals(cfg),
+		"two_way", cfg.TwoWay,
+		"two_way_kinds", strings.Join(cfg.TwoWayKinds, ","),
+		"two_way_wins", cfg.TwoWayWins,
+		"two_way_live_ids", cfg.TwoWayLiveIDs,
 		"mail_to", strings.Join(cfg.MailTo, ","))
 
 	if cfg.TableMaster != "" && len(cfg.TxnTables) > 0 {
@@ -185,7 +189,7 @@ func mailCrash(log *slog.Logger, n *notify.Notifier) {
 	}
 	stack := string(debug.Stack())
 	log.Error("crashed", "panic", r, "stack", stack)
-	n.Stopped(fmt.Sprintf("It crashed. On Linux the service starts it again after 30 s; on Windows start it again by hand.\n\npanic: %v\n\n%s", r, stack))
+	n.Crashed(r, stack)
 	os.Exit(1)
 }
 

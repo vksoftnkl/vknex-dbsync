@@ -33,6 +33,20 @@ type syncMarks struct {
 	deletesUpTo int64                   // highest waiting sync_deleted_rows id at the snapshot
 }
 
+// drop removes the rows whose key is in keys.
+func (p *pendingRows) drop(keys map[string]bool) {
+	if len(keys) == 0 {
+		return
+	}
+	var ks, vs []string
+	for i, k := range p.keys {
+		if !keys[k] {
+			ks, vs = append(ks, k), append(vs, p.versions[i])
+		}
+	}
+	p.keys, p.versions = ks, vs
+}
+
 func (m *syncMarks) count() (n int) {
 	for _, p := range m.rows {
 		n += len(p.keys)
@@ -108,8 +122,10 @@ func (s *Syncer) stamp(c *schema.Column) string {
 
 // markTarget stamps the waiting rows on the target, in the sync transaction.
 // After the data step the target matches the snapshot, so its rows with a NULL
-// sync column are exactly the rows that were waiting on the source.
-func (s *Syncer) markTarget(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, m *syncMarks, at time.Time) error {
+// sync column are exactly the rows that were waiting on the source. On a
+// -two-way table the push left the rows with a live change waiting alone:
+// those are dropped from m, so that they stay waiting on the source too.
+func (s *Syncer) markTarget(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, m *syncMarks, snapshot, at time.Time) error {
 	names := slices.Sorted(maps.Keys(m.rows))
 	if len(names) == 0 {
 		return nil
@@ -117,12 +133,28 @@ func (s *Syncer) markTarget(ctx context.Context, tx pgx.Tx, tables map[string]*s
 	batch := &pgx.Batch{} // one round trip for every table
 	for _, name := range names {
 		t := tables[name]
+		if t.TwoWay {
+			batch.Queue(fmt.Sprintf("SELECT ROW(%s)::text FROM (%s) k", pg.IdentList(t.PK, "k."), s.liveKeysSQL(t, snapshot)))
+		}
 		col := pg.Ident(t.SyncCol.Name)
 		batch.Queue(fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL%s", t.QName(), col, s.stamp(t.SyncCol), col, validRows(t)), at)
 	}
 	br := tx.SendBatch(ctx, batch)
 	var n int64
 	for _, name := range names {
+		if tables[name].TwoWay {
+			rows, err := br.Query()
+			if err != nil {
+				br.Close()
+				return fmt.Errorf("table %s: read live changes: %w", name, err)
+			}
+			live, err := pgx.CollectRows(rows, pgx.RowTo[string])
+			if err != nil {
+				br.Close()
+				return fmt.Errorf("table %s: read live changes: %w", name, err)
+			}
+			m.rows[name].drop(toSet(live))
+		}
 		tag, err := br.Exec()
 		if err != nil {
 			br.Close()

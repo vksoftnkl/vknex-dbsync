@@ -67,6 +67,12 @@ func (s *Syncer) plan(ctx context.Context, srcTx pgx.Tx, dst *pgx.Conn, tables m
 		if s.cfg.TableMaster != "" {
 			attrs = append(attrs, "kind", t.Kind)
 		}
+		if t.SyncCol != nil {
+			attrs = append(attrs, "stamps", t.SyncCol.Name)
+		}
+		if t.TwoWay {
+			attrs = append(attrs, "two_way", true)
+		}
 		s.log.Info("plan", attrs...)
 	}
 	s.log.Info("DRY RUN total", "rows_to_read", total, "deletes", s.cfg.Deletes && s.cfg.Mode == "incremental")

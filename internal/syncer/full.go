@@ -51,7 +51,7 @@ func (s *Syncer) full(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tables map
 		if _, err := s.stage(ctx, srcPg, dst, t, stage, cols, ""); err != nil {
 			return err
 		}
-		if _, err := dst.Exec(ctx, fixBreakSQL(t, stage)); err != nil {
+		if _, err := dst.Exec(ctx, fixBreakSQL(t, stage, "")); err != nil {
 			return fmt.Errorf("table %s: fill cycle columns: %w", name, hint(err))
 		}
 	}

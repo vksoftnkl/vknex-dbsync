@@ -14,7 +14,20 @@ import (
 
 // upsertSQL inserts new rows and updates only rows whose values actually
 // changed, so the overlap window does not rewrite (and bloat) unchanged rows.
-func upsertSQL(t *schema.Table, stage string) string {
+// Staged rows matching skip (a condition on s, "" for none) are left out.
+func upsertSQL(t *schema.Table, stage, skip string) string {
+	return upsertWithSQL(t, stage, skip, "", "")
+}
+
+// pullUpsertSQL is upsertSQL for a pull into the source: t's sync column gets
+// stamp instead of the staged value and is not compared, so a row that differs
+// in nothing else is left alone, and only existing rows matching keep (a
+// condition on d, "" for all) are updated.
+func pullUpsertSQL(t *schema.Table, stage, stamp, keep string) string {
+	return upsertWithSQL(t, stage, "", stamp, keep)
+}
+
+func upsertWithSQL(t *schema.Table, stage, skip, stamp, keep string) string {
 	pk := toSet(t.PK)
 
 	var cols, vals, sets, oldVals, newVals []string
@@ -22,6 +35,11 @@ func upsertSQL(t *schema.Table, stage string) string {
 		cols = append(cols, pg.Ident(c.Name))
 		if t.IsBreak(c.Name) {
 			vals = append(vals, "NULL") // filled in by fixBreakSQL
+			continue
+		}
+		if stamp != "" && t.SyncCol != nil && c.Name == t.SyncCol.Name {
+			vals = append(vals, stamp)
+			sets = append(sets, fmt.Sprintf("%s = EXCLUDED.%s", pg.Ident(c.Name), pg.Ident(c.Name)))
 			continue
 		}
 		vals = append(vals, "s."+pg.Ident(c.Name))
@@ -44,24 +62,41 @@ func upsertSQL(t *schema.Table, stage string) string {
 		overriding = " OVERRIDING SYSTEM VALUE"
 	}
 
-	q := fmt.Sprintf("INSERT INTO %s AS d (%s)%s SELECT %s FROM %s s ON CONFLICT (%s) ",
-		t.QName(), strings.Join(cols, ", "), overriding, strings.Join(vals, ", "), stage, pg.IdentList(t.PK, ""))
-	if len(sets) == 0 {
+	where := ""
+	if skip != "" {
+		where = " WHERE NOT " + skip
+	}
+	q := fmt.Sprintf("INSERT INTO %s AS d (%s)%s SELECT %s FROM %s s%s ON CONFLICT (%s) ",
+		t.QName(), strings.Join(cols, ", "), overriding, strings.Join(vals, ", "), stage, where, pg.IdentList(t.PK, ""))
+	if len(oldVals) == 0 {
 		return q + "DO NOTHING"
 	}
-	return q + fmt.Sprintf("DO UPDATE SET %s WHERE ROW(%s) IS DISTINCT FROM ROW(%s)",
+	q += fmt.Sprintf("DO UPDATE SET %s WHERE ROW(%s) IS DISTINCT FROM ROW(%s)",
 		strings.Join(sets, ", "), strings.Join(oldVals, ", "), strings.Join(newVals, ", "))
+	if keep != "" {
+		q += " AND " + keep
+	}
+	return q
 }
 
-// fixBreakSQL copies FK-cycle columns from the stage once all rows exist.
-func fixBreakSQL(t *schema.Table, stage string) string {
+// fixBreakSQL copies FK-cycle columns from the stage once all rows exist,
+// except for staged rows matching skip (a condition on s, "" for none).
+func fixBreakSQL(t *schema.Table, stage, skip string) string {
 	sets := make([]string, len(t.Break))
 	for i, c := range t.Break {
 		sets[i] = fmt.Sprintf("%s = s.%s", pg.Ident(c), pg.Ident(c))
 	}
-	return fmt.Sprintf("UPDATE %s d SET %s FROM %s s WHERE %s AND ROW(%s) IS DISTINCT FROM ROW(%s)",
+	return fmt.Sprintf("UPDATE %s d SET %s FROM %s s WHERE %s AND ROW(%s) IS DISTINCT FROM ROW(%s)%s",
 		t.QName(), strings.Join(sets, ", "), stage, matchCols(t.PK, "s", "d"),
-		pg.IdentList(t.Break, "d."), pg.IdentList(t.Break, "s."))
+		pg.IdentList(t.Break, "d."), pg.IdentList(t.Break, "s."), andNot(skip))
+}
+
+// andNot appends NOT cond to a WHERE clause; "" when cond is "".
+func andNot(cond string) string {
+	if cond == "" {
+		return ""
+	}
+	return " AND NOT " + cond
 }
 
 // selectExprs lists source columns; with nullBreak, FK-cycle columns become NULL.

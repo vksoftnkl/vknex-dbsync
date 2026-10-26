@@ -25,11 +25,13 @@ const timeout = 30 * time.Second
 // Notifier sends the mails. A nil Notifier (no -mail-to, or -dry-run) sends
 // nothing, so callers never check for one.
 type Notifier struct {
-	cfg    *config.Config
-	log    *slog.Logger
-	host   string                           // this machine, named in every mail
-	footer string                           // source -> target and the log file, under every mail
-	send   func(subject, body string) error // smtpSend; a stub in tests
+	cfg     *config.Config
+	log     *slog.Logger
+	host    string               // this machine, named in every mail
+	source  string               // user@host:port/db of the source, in every mail
+	target  string               // the same for the target
+	logFile string               // where the logs go, in every mail; "" = the console
+	send    func(*message) error // smtpSend; a stub in tests
 
 	mu      sync.Mutex
 	failing map[string]outage // what -> its outage, while it keeps failing
@@ -47,10 +49,10 @@ func New(cfg *config.Config, logFile string, log *slog.Logger) *Notifier {
 	if err != nil {
 		host = "unknown host"
 	}
-	n := &Notifier{cfg: cfg, log: log, host: host, failing: map[string]outage{}}
-	n.footer = pg.Describe(cfg.SourceURL) + " -> " + pg.Describe(cfg.TargetURL)
-	if logFile != "" {
-		n.footer += "\nLog: " + logFile
+	n := &Notifier{
+		cfg: cfg, log: log, host: host, logFile: logFile,
+		source: pg.Describe(cfg.SourceURL), target: pg.Describe(cfg.TargetURL),
+		failing: map[string]outage{},
 	}
 	n.send = n.smtpSend
 	return n
@@ -77,20 +79,25 @@ func (n *Notifier) Failed(what string, err error) {
 	n.failing[what] = o
 	n.mu.Unlock()
 
-	subject := what + " failed"
-	text := fmt.Sprintf("The %s on %s failed at %s.", what, n.host, stamp(now))
-	if failing {
-		subject = what + " still failing"
-		text = fmt.Sprintf("The %s on %s has been failing since %s, last at %s.", what, n.host, stamp(o.since), stamp(now))
-	}
+	retry := ""
 	if n.cfg.Interval > 0 {
-		text += " It is retried; you get a mail when it works again"
+		retry = " It is retried; you get a mail when it works again"
 		if n.cfg.MailRepeat > 0 {
-			text += fmt.Sprintf(", and one every %s while it keeps failing", n.cfg.MailRepeat)
+			retry += fmt.Sprintf(", and one every %s while it keeps failing", human(n.cfg.MailRepeat))
 		}
-		text += "."
+		retry += "."
 	}
-	n.mail(subject, fmt.Sprintf("%s\n\n%v", text, err))
+	m := &message{Tone: toneFailed, Event: capital(what) + " failed", Label: "Error", Detail: fmt.Sprint(err)}
+	if failing {
+		m.Tone, m.Event = toneFailing, capital(what)+" still failing"
+		m.Summary = fmt.Sprintf("The %s on %s has been failing for %s, since %s. The last attempt failed at %s.%s",
+			what, n.host, human(now.Sub(o.since)), stamp(o.since), stamp(now), retry)
+		m.Facts = []fact{{Key: "Failing since", Value: stamp(o.since)}, {Key: "Last failure", Value: stamp(now)}, {Key: "For", Value: human(now.Sub(o.since))}}
+	} else {
+		m.Summary = fmt.Sprintf("The %s on %s failed at %s.%s", what, n.host, stamp(now), retry)
+		m.Facts = []fact{{Key: "Failed at", Value: stamp(now)}}
+	}
+	n.mail(m)
 }
 
 // Recovered mails that what works again, if Failed mailed about it.
@@ -105,7 +112,14 @@ func (n *Notifier) Recovered(what string) {
 	if !failing {
 		return
 	}
-	n.mail(what+" recovered", fmt.Sprintf("The %s on %s works again since %s, after failing since %s.", what, n.host, stamp(time.Now()), stamp(o.since)))
+	now := time.Now()
+	n.mail(&message{
+		Tone:  toneRecovered,
+		Event: capital(what) + " recovered",
+		Summary: fmt.Sprintf("The %s on %s works again since %s. It had been failing for %s, since %s.",
+			what, n.host, stamp(now), human(now.Sub(o.since)), stamp(o.since)),
+		Facts: []fact{{Key: "Works since", Value: stamp(now)}, {Key: "Failed since", Value: stamp(o.since)}, {Key: "Outage", Value: human(now.Sub(o.since))}},
+	})
 }
 
 // Stopped mails that the program ended; why says how, in full sentences.
@@ -113,7 +127,30 @@ func (n *Notifier) Stopped(why string) {
 	if n == nil {
 		return
 	}
-	n.mail("stopped", fmt.Sprintf("vknex-dbsync on %s stopped at %s.\n\n%s", n.host, stamp(time.Now()), why))
+	now := time.Now()
+	n.mail(&message{
+		Tone:    toneStopped,
+		Event:   "Stopped",
+		Summary: fmt.Sprintf("vknex-dbsync on %s stopped at %s. %s", n.host, stamp(now), why),
+		Facts:   []fact{{Key: "Stopped at", Value: stamp(now)}},
+	})
+}
+
+// Crashed mails that the program ended with the panic value r and its stack.
+func (n *Notifier) Crashed(r any, stack string) {
+	if n == nil {
+		return
+	}
+	now := time.Now()
+	n.mail(&message{
+		Tone:  toneCrashed,
+		Event: "Crashed",
+		Summary: fmt.Sprintf("vknex-dbsync on %s crashed at %s. On Linux the service starts it again after 30 s; "+
+			"on Windows start it again by hand. Nothing is synced until then.", n.host, stamp(now)),
+		Label:  "Panic",
+		Detail: fmt.Sprintf("panic: %v\n\n%s", r, stack),
+		Facts:  []fact{{Key: "Crashed at", Value: stamp(now)}},
+	})
 }
 
 // Test sends a test mail, for -mail-test.
@@ -121,25 +158,67 @@ func (n *Notifier) Test() error {
 	if n == nil {
 		return errors.New("nothing to mail: -mail-to is empty or -dry-run is set")
 	}
-	return n.send("test mail", "The mail settings work: this is the test mail of -mail-test.")
+	return n.send(&message{
+		Tone:  toneTest,
+		Event: "Test mail",
+		Summary: "The mail settings work: this is the test mail of -mail-test. " +
+			"A mail like this one comes when a sync fails, when it works again and when the program stops.",
+		Facts: []fact{{Key: "Sent at", Value: stamp(time.Now())}, {Key: "Mail to", Value: strings.Join(n.cfg.MailTo, ", ")}},
+	})
 }
 
-func (n *Notifier) mail(subject, body string) {
-	if err := n.send(subject, body); err != nil {
-		n.log.Error("could not send the mail", "subject", subject, "err", err)
+func (n *Notifier) mail(m *message) {
+	if err := n.send(m); err != nil {
+		n.log.Error("could not send the mail", "subject", m.Event, "err", err)
 		return
 	}
-	n.log.Info("mail sent", "subject", subject, "to", strings.Join(n.cfg.MailTo, ","))
+	n.log.Info("mail sent", "subject", m.Event, "to", strings.Join(n.cfg.MailTo, ","))
 }
 
 func stamp(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05 MST")
 }
 
+// human writes d for a sentence: 2h 5m, 4m 30s, 12s.
+func human(d time.Duration) string {
+	if d < time.Second {
+		return "under a second"
+	}
+	if d >= time.Hour {
+		d = d.Round(time.Minute)
+		h, m := int(d.Hours()), int(d.Minutes())%60
+		if m == 0 {
+			return fmt.Sprintf("%dh", h)
+		}
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	d = d.Round(time.Second)
+	if d >= time.Minute {
+		m, s := int(d.Minutes()), int(d.Seconds())%60
+		if s == 0 {
+			return fmt.Sprintf("%dm", m)
+		}
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	return fmt.Sprintf("%ds", int(d.Seconds()))
+}
+
+// capital upper-cases the first letter: "sync" -> "Sync", for a headline.
+func capital(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 // smtpSend delivers one mail through -smtp: TLS from the start on port 465,
 // otherwise STARTTLS when the server offers it, logged in with -smtp-user.
-func (n *Notifier) smtpSend(subject, body string) error {
+func (n *Notifier) smtpSend(m *message) error {
 	cfg := n.cfg
+	msg, err := n.render(m, time.Now())
+	if err != nil {
+		return err
+	}
 	host, port, err := net.SplitHostPort(cfg.SMTPAddr)
 	if err != nil {
 		return err
@@ -185,31 +264,11 @@ func (n *Notifier) smtpSend(subject, body string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := w.Write(n.message(subject, body)); err != nil {
+	if _, err := w.Write(msg); err != nil {
 		return err
 	}
 	if err := w.Close(); err != nil {
 		return err
 	}
 	return c.Quit()
-}
-
-// message builds the mail: headers, the body and the footer, with CRLF line ends.
-func (n *Notifier) message(subject, body string) []byte {
-	lines := []string{
-		"From: " + n.cfg.MailFrom,
-		"To: " + strings.Join(n.cfg.MailTo, ", "),
-		"Subject: [vknex-dbsync] " + subject + " on " + n.host,
-		"Date: " + time.Now().Format(time.RFC1123Z),
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=utf-8",
-		"Content-Transfer-Encoding: 8bit",
-		"",
-		body,
-		"",
-		n.footer,
-		"",
-	}
-	text := strings.ReplaceAll(strings.Join(lines, "\n"), "\r\n", "\n") // an error text may already have CRLF
-	return []byte(strings.ReplaceAll(text, "\n", "\r\n"))
 }

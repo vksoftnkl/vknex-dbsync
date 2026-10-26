@@ -24,9 +24,14 @@ import (
 //  3. upsert changed rows, parents first (FK-cycle columns written as NULL)
 //  4. fill FK-cycle columns now that every referenced row exists
 //  5. delete rows that are gone from the source, children first
-func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tables map[string]*schema.Table, order []string, state map[string]time.Time, st *runStats) error {
+//
+// Target rows of a -two-way table whose key has a live change the source
+// snapshot (read at snapshot) does not have are left alone by every step.
+func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tables map[string]*schema.Table, order []string, state map[string]time.Time,
+	snapshot time.Time, st *runStats) error {
 	srcPg := src.PgConn()
 	deletes := s.cfg.Deletes
+	live := func(t *schema.Table, alias string) string { return s.liveWaiting(t, alias, snapshot) }
 
 	stageOf := map[string]string{}
 	keysOf := map[string]string{}
@@ -71,8 +76,8 @@ func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tab
 				continue
 			}
 			for _, u := range t.Uniques {
-				tag, err := dst.Exec(ctx, fmt.Sprintf("DELETE FROM %s d WHERE NOT EXISTS (SELECT 1 FROM %s k WHERE %s) AND EXISTS (%s)",
-					t.QName(), keysOf[name], matchCols(t.PK, "k", "d"), uniqueMatchSQL(t, u, stageOf[name])))
+				tag, err := dst.Exec(ctx, fmt.Sprintf("DELETE FROM %s d WHERE NOT EXISTS (SELECT 1 FROM %s k WHERE %s) AND EXISTS (%s)%s",
+					t.QName(), keysOf[name], matchCols(t.PK, "k", "d"), uniqueMatchSQL(t, u, stageOf[name]), andNot(live(t, "d"))))
 				if err != nil {
 					return fmt.Errorf("table %s: clear unique-key conflicts: %w", name, hint(err))
 				}
@@ -87,8 +92,9 @@ func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tab
 				// separately on each side); updating them one by one would collide midway.
 				// Such a target row is staged, so remove it now and let step 3 write it back.
 				// Only without triggers: a cascading foreign key would take its children along.
-				tag, err = dst.Exec(ctx, fmt.Sprintf("DELETE FROM %s d WHERE EXISTS (SELECT 1 FROM %s s0 WHERE %s) AND EXISTS (%s AND NOT (%s))",
-					t.QName(), stageOf[name], matchCols(t.PK, "s0", "d"), uniqueMatchSQL(t, u, stageOf[name]), matchCols(t.PK, "s", "d")))
+				tag, err = dst.Exec(ctx, fmt.Sprintf("DELETE FROM %s d WHERE EXISTS (SELECT 1 FROM %s s0 WHERE %s) AND EXISTS (%s AND NOT (%s))%s",
+					t.QName(), stageOf[name], matchCols(t.PK, "s0", "d"), uniqueMatchSQL(t, u, stageOf[name]), matchCols(t.PK, "s", "d"),
+					andNot(live(t, "d"))))
 				if err != nil {
 					return fmt.Errorf("table %s: clear unique-key conflicts: %w", name, hint(err))
 				}
@@ -122,7 +128,7 @@ func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tab
 			continue
 		}
 		if staged[name] > 0 {
-			w, err := s.upsert(ctx, dst, t, stageOf[name], st)
+			w, err := s.upsert(ctx, dst, t, stageOf[name], live(t, "s"), st)
 			if err != nil {
 				return fmt.Errorf("table %s: upsert: %w", name, hint(err))
 			}
@@ -139,7 +145,7 @@ func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tab
 		if len(t.Break) == 0 || len(t.PK) == 0 || staged[name] == 0 {
 			continue
 		}
-		if _, err := dst.Exec(ctx, fixBreakSQL(t, stageOf[name])); err != nil {
+		if _, err := dst.Exec(ctx, fixBreakSQL(t, stageOf[name], live(t, "s"))); err != nil {
 			return fmt.Errorf("table %s: fill cycle columns: %w", name, hint(err))
 		}
 	}
@@ -157,8 +163,9 @@ func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tab
 				sets[i] = pg.Ident(c) + " = NULL"
 				notNull[i] = "d." + pg.Ident(c) + " IS NOT NULL"
 			}
-			if _, err := dst.Exec(ctx, fmt.Sprintf("UPDATE %s d SET %s WHERE (%s) AND NOT EXISTS (SELECT 1 FROM %s k WHERE %s)",
-				t.QName(), strings.Join(sets, ", "), strings.Join(notNull, " OR "), keysOf[name], matchCols(t.PK, "k", "d"))); err != nil {
+			if _, err := dst.Exec(ctx, fmt.Sprintf("UPDATE %s d SET %s WHERE (%s) AND NOT EXISTS (SELECT 1 FROM %s k WHERE %s)%s",
+				t.QName(), strings.Join(sets, ", "), strings.Join(notNull, " OR "), keysOf[name], matchCols(t.PK, "k", "d"),
+				andNot(live(t, "d")))); err != nil {
 				return fmt.Errorf("table %s: detach cycle columns: %w", name, hint(err))
 			}
 		}
@@ -168,8 +175,8 @@ func (s *Syncer) incremental(ctx context.Context, src *pgx.Conn, dst pgx.Tx, tab
 			if len(t.PK) == 0 {
 				continue
 			}
-			tag, err := dst.Exec(ctx, fmt.Sprintf("DELETE FROM %s d WHERE NOT EXISTS (SELECT 1 FROM %s k WHERE %s)",
-				t.QName(), keysOf[name], matchCols(t.PK, "k", "d")))
+			tag, err := dst.Exec(ctx, fmt.Sprintf("DELETE FROM %s d WHERE NOT EXISTS (SELECT 1 FROM %s k WHERE %s)%s",
+				t.QName(), keysOf[name], matchCols(t.PK, "k", "d"), andNot(live(t, "d"))))
 			if err != nil {
 				return fmt.Errorf("table %s: delete removed rows: %w", name, hint(err))
 			}
@@ -214,12 +221,14 @@ func (s *Syncer) stage(ctx context.Context, srcPg *pgconn.PgConn, dst pgx.Tx, t 
 	return n, nil
 }
 
-// upsert writes the staged rows. On a table with NOT VALID constraints it runs
-// in a savepoint: when a source row breaks one of them, the target's copy is
-// set aside (see relaxNotValid) and the upsert is retried.
-func (s *Syncer) upsert(ctx context.Context, dst pgx.Tx, t *schema.Table, stage string, st *runStats) (int64, error) {
+// upsert writes the staged rows, except those matching skip. On a table with
+// NOT VALID constraints it runs in a savepoint: when a source row breaks one
+// of them, the target's copy is set aside (see relaxNotValid) and the upsert
+// is retried.
+func (s *Syncer) upsert(ctx context.Context, dst pgx.Tx, t *schema.Table, stage, skip string, st *runStats) (int64, error) {
+	q := upsertSQL(t, stage, skip)
 	if !slices.ContainsFunc(t.Constraints, func(c schema.Constraint) bool { return strings.HasSuffix(c.Def, " NOT VALID") }) {
-		tag, err := dst.Exec(ctx, upsertSQL(t, stage))
+		tag, err := dst.Exec(ctx, q)
 		return tag.RowsAffected(), err
 	}
 	for {
@@ -227,7 +236,7 @@ func (s *Syncer) upsert(ctx context.Context, dst pgx.Tx, t *schema.Table, stage 
 		if err != nil {
 			return 0, err
 		}
-		tag, err := sp.Exec(ctx, upsertSQL(t, stage))
+		tag, err := sp.Exec(ctx, q)
 		if err == nil {
 			return tag.RowsAffected(), sp.Commit(ctx)
 		}

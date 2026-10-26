@@ -30,18 +30,29 @@ func readSourceSequences(ctx context.Context, tx pgx.Tx, tables map[string]*sche
 	return out, nil
 }
 
-// setSequences moves each target sequence past both the source sequence and
-// the highest id on the target, so new rows on either side never collide.
-func setSequences(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, srcSeq map[seqKey]int64) error {
+// setSequences moves each sequence of tx's database past both the other
+// side's sequence (other) and the highest id there, so new rows on either side
+// never collide. With -two-way-live-ids the ids of a two-way table are kept
+// apart instead: on the target (onTarget) its sequences hand out ids from
+// there on, and on the source the ids from there on are the target's.
+func (s *Syncer) setSequences(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, other map[seqKey]int64, onTarget bool) error {
 	batch := &pgx.Batch{} // one round trip for every sequence
 	var cols []string
 	for name, t := range tables {
 		for _, col := range t.SeqCols {
-			// No row when the target column has no sequence.
+			top, floor := "max("+pg.Ident(col)+")", ""
+			if live := s.cfg.TwoWayLiveIDs; live > 0 && t.TwoWay {
+				if onTarget {
+					floor = fmt.Sprintf(", %d", live-1)
+				} else {
+					top = fmt.Sprintf("max(%s) FILTER (WHERE %s < %d)", pg.Ident(col), pg.Ident(col), live)
+				}
+			}
+			// No row when the column has no sequence.
 			batch.Queue(fmt.Sprintf(`SELECT CASE WHEN m >= 1 THEN setval(seq, m, true) ELSE setval(seq, 1, false) END
 				FROM (SELECT pg_get_serial_sequence(format('%%I.%%I', $1::text, $2::text), $3)::regclass AS seq,
-				             GREATEST($4::bigint, COALESCE(max(%s), 0)::bigint) AS m FROM %s) x
-				WHERE seq IS NOT NULL`, pg.Ident(col), t.QName()), t.Schema, t.Name, col, srcSeq[seqKey{name, col}])
+				             GREATEST($4::bigint, COALESCE(%s, 0)::bigint%s) AS m FROM %s) x
+				WHERE seq IS NOT NULL`, top, floor, t.QName()), t.Schema, t.Name, col, other[seqKey{name, col}])
 			cols = append(cols, name+"."+col)
 		}
 	}

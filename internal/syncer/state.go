@@ -3,6 +3,8 @@ package syncer
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,10 +16,12 @@ import (
 // ensureMeta creates the sync-state tables on the target when they are
 // missing, in a short transaction of its own: created inside a sync
 // transaction, they would hold up the other kind of run until that commits.
+// With -two-way that includes the log of live changes (see pull).
 func (s *Syncer) ensureMeta(ctx context.Context, dst *pgx.Conn) error {
 	var ok bool
-	if err := dst.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL AND to_regclass($2) IS NOT NULL",
-		pg.QName(s.cfg.MetaSchema, "table_state"), pg.QName(s.cfg.MetaSchema, "run_log")).Scan(&ok); err != nil {
+	if err := dst.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL AND to_regclass($2) IS NOT NULL
+		AND (NOT $4 OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass($3) AND attname = 'pulled_at'))`,
+		pg.QName(s.cfg.MetaSchema, "table_state"), pg.QName(s.cfg.MetaSchema, "run_log"), s.liveChanges(), s.cfg.TwoWay).Scan(&ok); err != nil {
 		return err
 	}
 	if ok {
@@ -50,6 +54,19 @@ func (s *Syncer) ensureMeta(ctx context.Context, dst *pgx.Conn) error {
 			rows_written bigint      NOT NULL,
 			rows_deleted bigint      NOT NULL)`,
 	}
+	if s.cfg.TwoWay {
+		stmts = append(stmts,
+			`CREATE TABLE IF NOT EXISTS `+s.liveChanges()+` (
+				id          bigserial   PRIMARY KEY,
+				schema_name text        NOT NULL,
+				table_name  text        NOT NULL,
+				pk          jsonb       NOT NULL,
+				changed_at  timestamptz NOT NULL DEFAULT clock_timestamp(),
+				pulled_at   timestamptz)`,
+			`ALTER TABLE `+s.liveChanges()+` ADD COLUMN IF NOT EXISTS pulled_at timestamptz`,
+			// The push looks every row it writes up here (liveWaiting).
+			`CREATE INDEX IF NOT EXISTS live_changes_key ON `+s.liveChanges()+` (schema_name, table_name, pk)`)
+	}
 	for _, q := range stmts {
 		if _, err := tx.Exec(ctx, q); err != nil {
 			return fmt.Errorf("prepare %s schema: %w", s.cfg.MetaSchema, err)
@@ -78,7 +95,9 @@ func (s *Syncer) loadState(ctx context.Context, q pg.Querier) (map[string]time.T
 }
 
 // saveState records the watermark of every table of the run and the run
-// itself; mode is the -mode, or "instant" for a run of Watch.
+// itself; mode is the -mode, or "instant" for a run of Watch. The live changes
+// of its two-way tables pulled before snapshot are done with: this run wrote
+// their rows as pulled, and every later run reads them that way too.
 func (s *Syncer) saveState(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, mode string, snapshot, started time.Time, st *runStats) error {
 	q := fmt.Sprintf(`INSERT INTO %s (schema_name, table_name, last_synced_at) VALUES ($1, $2, $3)
 		ON CONFLICT (schema_name, table_name) DO UPDATE SET last_synced_at = EXCLUDED.last_synced_at, updated_at = now()`,
@@ -90,6 +109,10 @@ func (s *Syncer) saveState(ctx context.Context, tx pgx.Tx, tables map[string]*sc
 	batch.Queue(fmt.Sprintf(`INSERT INTO %s (mode, snapshot_at, started_at, finished_at, tables, rows_read, rows_written, rows_deleted)
 		VALUES ($1, $2, $3, clock_timestamp(), $4, $5, $6, $7)`, pg.QName(s.cfg.MetaSchema, "run_log")),
 		mode, snapshot, started, st.Tables, st.Copied, st.Upserted, st.Deleted)
+	if twoWay := slices.Collect(maps.Keys(twoWayOf(tables))); len(twoWay) > 0 {
+		batch.Queue(fmt.Sprintf("DELETE FROM %s WHERE pulled_at < $1 AND schema_name || '.' || table_name = ANY($2::text[])", s.liveChanges()),
+			snapshot, twoWay)
+	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("save sync state: %w", err)
 	}

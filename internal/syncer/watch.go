@@ -26,6 +26,8 @@ import (
 // there and runs a small incremental sync of just the tables named. The
 // interval tables (Table.Txn) keep following -interval in RunOnce.
 // -table-master carries the trigger too: a change there sorts the tables again.
+// With -two-way, watchLive pulls the live changes to the two-way tables on its
+// own; Watch keeps their capture triggers on the target current.
 const (
 	notifyChannel  = "vknex_sync"
 	notifyTrigger  = "zz_vknex_sync_notify"
@@ -38,8 +40,18 @@ const (
 
 // Watch mirrors the instant tables until ctx ends, starting over after an error
 // (e.g. the source restarted). On every start it first syncs all of them, to
-// catch up on changes made while nothing was listening.
+// catch up on changes made while nothing was listening. With -two-way,
+// watchLive runs beside it until ctx ends.
 func (s *Syncer) Watch(ctx context.Context) {
+	if s.cfg.TwoWay {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.watchLive(ctx)
+		}()
+		defer wg.Wait()
+	}
 	for {
 		err := s.watch(ctx)
 		if ctx.Err() != nil {
@@ -64,6 +76,9 @@ type watcher struct {
 	instant  map[string]bool // the tables Watch mirrors
 	master   string          // key of -table-master, "" without it
 	paused   bool            // waiting for an interval run (errBusy)
+
+	twoWay  map[string]*schema.Table // the -two-way tables, instant or not
+	capture bool                     // twoWay was read again: update the capture triggers before the next run
 }
 
 func (s *Syncer) watch(ctx context.Context) error {
@@ -91,18 +106,7 @@ func (s *Syncer) watch(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for {
-			n, err := listen.WaitForNotification(ctx)
-			if err != nil {
-				lost <- err
-				return
-			}
-			select {
-			case notes <- n.Payload:
-			case <-ctx.Done():
-				return
-			}
-		}
+		relay(ctx, listen, notes, lost)
 	}()
 	defer func() {
 		cancel()
@@ -127,6 +131,9 @@ func (s *Syncer) watch(ctx context.Context) error {
 	if w.master != "" {
 		started = append(started, "table_master", w.master, "instant_kinds", strings.Join(s.cfg.InstantKinds, ","))
 	}
+	if s.cfg.TwoWay {
+		started = append(started, "two_way_tables", len(w.twoWay), "two_way_kinds", strings.Join(s.cfg.TwoWayKinds, ","))
+	}
 	s.log.Info("instant sync started", started...)
 	s.Status.InstantStarted(len(w.instant), len(w.tables)-len(w.instant))
 
@@ -137,9 +144,14 @@ func (s *Syncer) watch(ctx context.Context) error {
 			// just created), or -table-master changed: read the table list
 			// again. A table that just became instant catches up at once, as
 			// the interval runs no longer move it.
-			was := w.instant
+			was, wasTwoWay := w.instant, w.twoWay
 			if err := w.refresh(ctx); err != nil {
 				return err
+			}
+			for key := range w.twoWay {
+				if wasTwoWay[key] == nil && w.instant[key] {
+					pending[key] = true // its run puts the capture trigger on
+				}
 			}
 			var gained, lost []string
 			for key := range w.instant {
@@ -164,6 +176,7 @@ func (s *Syncer) watch(ctx context.Context) error {
 		}
 		return nil
 	}
+
 	now := make(chan time.Time)
 	close(now) // always ready
 
@@ -324,6 +337,23 @@ func listOf(names []string) string {
 	return fmt.Sprintf("%s and %d more", strings.Join(names[:5], ","), len(names)-5)
 }
 
+// relay passes the notifications conn receives on to notes until ctx ends or
+// the connection is lost (to lost, which holds one error).
+func relay(ctx context.Context, conn *pgx.Conn, notes chan<- string, lost chan<- error) {
+	for {
+		n, err := conn.WaitForNotification(ctx)
+		if err != nil {
+			lost <- err
+			return
+		}
+		select {
+		case notes <- n.Payload:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // run mirrors the named tables into the target in one transaction, like an
 // incremental RunOnce limited to them, without schema changes.
 func (w *watcher) run(ctx context.Context, names []string) error {
@@ -340,6 +370,12 @@ func (w *watcher) runTables(ctx context.Context, names []string) error {
 	if err := w.open(ctx); err != nil {
 		return err
 	}
+	if w.capture {
+		if err := s.ensureCapture(ctx, w.dst, w.twoWay); err != nil {
+			return err
+		}
+		w.capture = false
+	}
 
 	srcTx, snapshot, err := beginSnapshot(ctx, w.src)
 	if err != nil {
@@ -355,12 +391,13 @@ func (w *watcher) runTables(ctx context.Context, names []string) error {
 	}); err != nil {
 		return fmt.Errorf("source schema: %w", err)
 	}
-	kinds, err := schema.LoadKinds(ctx, srcTx, cfg)
+	master, err := schema.LoadMaster(ctx, srcTx, cfg)
 	if err != nil {
 		return err
 	}
 	want := toSet(names)
-	tables := schema.Subset(schema.Select(srcAll, cfg, kinds), func(t *schema.Table) bool {
+	selected, _ := schema.Select(srcAll, cfg, master) // refresh and the interval runs log the warnings
+	tables := schema.Subset(selected, func(t *schema.Table) bool {
 		return want[schema.Key(t.Schema, t.Name)] && !t.Txn // still instant at this snapshot
 	})
 	if len(tables) == 0 {
@@ -395,7 +432,7 @@ func (w *watcher) runTables(ctx context.Context, names []string) error {
 		return err
 	}
 	var st runStats
-	if err := s.incremental(ctx, w.src, dstTx, tables, order, state, &st); err != nil {
+	if err := s.incremental(ctx, w.src, dstTx, tables, order, state, snapshot, &st); err != nil {
 		return err
 	}
 	if err := s.applyDDL(ctx, dstTx, st.ReAdd); err != nil {
@@ -448,12 +485,16 @@ func (w *watcher) refresh(ctx context.Context) error {
 	}); err != nil {
 		return fmt.Errorf("source schema: %w", err)
 	}
-	kinds, err := schema.LoadKinds(ctx, tx, cfg)
+	master, err := schema.LoadMaster(ctx, tx, cfg)
 	if err != nil {
 		return err
 	}
-	selected := schema.Select(all, cfg, kinds)
+	selected, warnings := schema.Select(all, cfg, master)
+	for _, warn := range warnings {
+		w.s.log.Warn("sync column", "detail", warn)
+	}
 	w.tables, w.instant = map[string]bool{}, map[string]bool{}
+	w.twoWay, w.capture = twoWayOf(selected), cfg.TwoWay
 	// The relations that carry the trigger, each with the table its
 	// notification names. A statement on a partition fires only the
 	// partition's own trigger, so a partition names its partitioned table

@@ -38,6 +38,10 @@ type Config struct {
 	TableMaster     string                   // "schema.table" classifying the tables, e.g. public.db_table_master
 	InstantKinds    []string                 // upper case
 	KindIntervals   map[string]time.Duration // upper-case kind -> how often the interval runs move it
+	TwoWay          bool                     // also bring changes made on the target to the TwoWayKinds tables back to the source
+	TwoWayKinds     []string                 // upper case
+	TwoWayWins      string                   // "local" | "live": whose version a row changed on both sides keeps
+	TwoWayLiveIDs   int64                    // first id the target's sequences of two-way tables hand out; 0 = the source's next
 	DryRun          bool
 	Yes             bool
 	Interval        time.Duration
@@ -78,13 +82,17 @@ func Load(args []string) (*Config, error) {
 	fs.BoolVar(&c.DisableTriggers, "disable-triggers", envBool("SYNC_DISABLE_TRIGGERS", false), "set session_replication_role=replica on target (skips FK/trigger checks; needs rds_superuser) [SYNC_DISABLE_TRIGGERS]")
 	fs.BoolVar(&c.DDL, "ddl", envBool("SYNC_DDL", false), "create/alter target schemas, enum types, tables, partitions, columns, constraints and indexes to match the source [SYNC_DDL]")
 	fs.BoolVar(&c.DDLDrop, "ddl-drop", envBool("SYNC_DDL_DROP", false), "with -ddl, also drop target tables, partitions and columns the source no longer has; their data is lost [SYNC_DDL_DROP]")
-	fs.BoolVar(&c.MarkSynced, "mark-synced", envBool("SYNC_MARK_SYNCED", false), "after a run, set each table's sync column (…sync_date) on target and source for the rows that were waiting (NULL), and sdr_sync_date in public.sync_deleted_rows [SYNC_MARK_SYNCED]")
+	fs.BoolVar(&c.MarkSynced, "mark-synced", envBool("SYNC_MARK_SYNCED", false), "after a run, set each table's sync column (dtm_sync_col in -table-master, else its …sync_date column) on target and source for the rows that were waiting (NULL), and sdr_sync_date in public.sync_deleted_rows [SYNC_MARK_SYNCED]")
 	fs.BoolVar(&c.MarkTxn, "mark-txn", envBool("SYNC_MARK_TXN", true), "with -mark-synced, also set the sync column of the -txn-tables; false = only the master tables (the others) [SYNC_MARK_TXN]")
 	fs.BoolVar(&c.Instant, "instant", envBool("SYNC_INSTANT", false), "mirror the master tables (see -table-master) within seconds of a change on the source; the others follow -interval [SYNC_INSTANT]")
 	txn := fs.String("txn-tables", env("SYNC_TXN_TABLES", ""), "with -instant and an empty -table-master: comma-separated tables (name or schema.name) synced only every -interval, all others are instant [SYNC_TXN_TABLES]")
-	fs.StringVar(&c.TableMaster, "table-master", env("SYNC_TABLE_MASTER", "public.db_table_master"), "source table (schema.name) listing the tables by dtm_kind, read on every run: -instant mirrors the -instant-kinds tables, all others follow -interval (or -kind-intervals); empty = use -txn-tables [SYNC_TABLE_MASTER]")
+	fs.StringVar(&c.TableMaster, "table-master", env("SYNC_TABLE_MASTER", "public.db_table_master"), "source table (schema.name) listing the tables by dtm_kind, with their sync column in dtm_sync_col, read on every run: -instant mirrors the -instant-kinds tables, all others follow -interval (or -kind-intervals); empty = use -txn-tables [SYNC_TABLE_MASTER]")
 	kinds := fs.String("instant-kinds", env("SYNC_INSTANT_KINDS", "MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM"), "with -table-master: comma-separated dtm_kind values mirrored within seconds [SYNC_INSTANT_KINDS]")
 	every := fs.String("kind-intervals", env("SYNC_KIND_INTERVALS", "LOG:1h"), "with -table-master: comma-separated kind:interval for kinds the interval runs move less often than -interval [SYNC_KIND_INTERVALS]")
+	fs.BoolVar(&c.TwoWay, "two-way", envBool("SYNC_TWO_WAY", false), "also copy rows inserted, changed or deleted on the target in the -two-way-kinds tables back to the source; needs -table-master and -mark-synced [SYNC_TWO_WAY]")
+	twoWayKinds := fs.String("two-way-kinds", env("SYNC_TWO_WAY_KINDS", "MASTER"), "with -two-way: comma-separated dtm_kind values synced both ways [SYNC_TWO_WAY_KINDS]")
+	fs.StringVar(&c.TwoWayWins, "two-way-wins", env("SYNC_TWO_WAY_WINS", "local"), "with -two-way, for a row changed on both sides since the last sync: local keeps the source's version, live takes the target's [SYNC_TWO_WAY_WINS]")
+	fs.Int64Var(&c.TwoWayLiveIDs, "two-way-live-ids", envInt("SYNC_TWO_WAY_LIVE_IDS", 0), "with -two-way: the target's sequences of the two-way tables hand out ids from this one on (e.g. 1000000000), so that rows created on each side never get the same id; 0 = they follow the source's [SYNC_TWO_WAY_LIVE_IDS]")
 	fs.BoolVar(&c.DryRun, "dry-run", envBool("SYNC_DRY_RUN", false), "show the plan and row counts, change nothing [SYNC_DRY_RUN]")
 	fs.BoolVar(&c.Yes, "yes", envBool("SYNC_YES", false), "required for -mode full (it truncates target tables) [SYNC_YES]")
 	fs.DurationVar(&c.Interval, "interval", envDur("SYNC_INTERVAL", 0), "repeat every interval (e.g. 5m); 0 = run once [SYNC_INTERVAL]")
@@ -112,6 +120,8 @@ func Load(args []string) (*Config, error) {
 	c.UpdatedCols = splitList(*updated)
 	c.TxnTables = splitList(*txn)
 	c.InstantKinds = splitList(strings.ToUpper(*kinds))
+	c.TwoWayKinds = splitList(strings.ToUpper(*twoWayKinds))
+	c.TwoWayWins = strings.ToLower(strings.TrimSpace(c.TwoWayWins))
 	ki, err := parseKindIntervals(*every)
 	if err != nil {
 		return nil, err
@@ -140,6 +150,16 @@ func Load(args []string) (*Config, error) {
 		return nil, errors.New("-instant needs -interval: the -txn-tables are synced on that schedule")
 	case c.TableMaster != "" && len(c.InstantKinds) == 0:
 		return nil, errors.New("-table-master needs at least one -instant-kinds value, e.g. MASTER")
+	case c.TwoWay && c.TableMaster == "":
+		return nil, errors.New("-two-way needs -table-master: its dtm_kind picks the tables synced both ways")
+	case c.TwoWay && !c.MarkSynced:
+		return nil, errors.New("-two-way needs -mark-synced: an empty sync column is how a source row that changed since the last sync is told apart")
+	case c.TwoWay && len(c.TwoWayKinds) == 0:
+		return nil, errors.New("-two-way needs at least one -two-way-kinds value, e.g. MASTER")
+	case c.TwoWayWins != "local" && c.TwoWayWins != "live":
+		return nil, fmt.Errorf("unknown -two-way-wins %q (use local or live)", c.TwoWayWins)
+	case c.TwoWayLiveIDs < 0:
+		return nil, errors.New("-two-way-live-ids must be 0 (off) or the first id handed out on the target, e.g. 1000000000")
 	}
 	for kind := range c.KindIntervals {
 		if slices.Contains(c.InstantKinds, kind) {
@@ -252,6 +272,15 @@ func envBool(k string, def bool) bool {
 	if v, ok := os.LookupEnv(k); ok {
 		if b, err := strconv.ParseBool(v); err == nil {
 			return b
+		}
+	}
+	return def
+}
+
+func envInt(k string, def int64) int64 {
+	if v, ok := os.LookupEnv(k); ok {
+		if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+			return n
 		}
 	}
 	return def

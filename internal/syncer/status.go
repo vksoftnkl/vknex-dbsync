@@ -24,6 +24,7 @@ func (s *Syncer) reportTables(tables map[string]*schema.Table) {
 			Schedule:   s.schedule(t),
 			Instant:    s.cfg.Instant && !t.Txn,
 			HasPK:      len(t.PK) > 0,
+			TwoWay:     t.TwoWay,
 			Partitions: len(t.Partitions),
 		}
 		if t.UpdatedCol != nil {

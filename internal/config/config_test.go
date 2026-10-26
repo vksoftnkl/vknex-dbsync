@@ -48,3 +48,29 @@ func TestParseKindIntervals(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadTwoWay(t *testing.T) {
+	load := func(extra ...string) (*Config, error) {
+		return Load(append([]string{"-source", "postgres://a/x", "-target", "postgres://b/x"}, extra...))
+	}
+	c, err := load("-two-way", "-mark-synced", "-two-way-kinds", " master, setting ", "-two-way-wins", " Live ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(c.TwoWayKinds, ","); !c.TwoWay || got != "MASTER,SETTING" || c.TwoWayWins != "live" {
+		t.Fatalf("got two-way=%v kinds=%q wins=%q", c.TwoWay, got, c.TwoWayWins)
+	}
+	if c, err := load(); err != nil || c.TwoWay || c.TwoWayWins != "local" || strings.Join(c.TwoWayKinds, ",") != "MASTER" {
+		t.Fatalf("defaults: two-way=%v kinds=%v wins=%q err=%v", c.TwoWay, c.TwoWayKinds, c.TwoWayWins, err)
+	}
+	for name, args := range map[string][]string{
+		"no mark-synced":  {"-two-way"},
+		"no table master": {"-two-way", "-mark-synced", "-table-master", ""},
+		"no kinds":        {"-two-way", "-mark-synced", "-two-way-kinds", " , "},
+		"bad wins":        {"-two-way-wins", "newest"},
+	} {
+		if _, err := load(args...); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}

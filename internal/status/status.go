@@ -86,6 +86,7 @@ type Table struct {
 	HasPK        bool   `json:"hasPk"`
 	UpdatedCol   string `json:"updatedCol"`
 	SyncCol      string `json:"syncCol"`
+	TwoWay       bool   `json:"twoWay"` // -two-way: live changes come back to the local database
 	Partitions   int    `json:"partitions"`
 	LastSyncedAt int64  `json:"lastSyncedAt"` // from the target's table_state, filled in by the server
 }

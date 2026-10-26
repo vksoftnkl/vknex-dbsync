@@ -74,9 +74,10 @@ type Table struct {
 	SeqCols     []string    // columns backed by an owned sequence / identity
 	Break       []string    // FK columns written as NULL first, filled in later (cycles)
 	UpdatedCol  *Column
-	SyncCol     *Column // set with -mark-synced: the column holding the last sync time
+	SyncCol     *Column // set with -mark-synced: the column holding the last sync time (dtm_sync_col in -table-master, else by its name; see Select)
 	Kind        string  // dtm_kind in -table-master; "" when it does not list the table (or no -table-master)
 	Txn         bool    // -instant leaves the table to the -interval runs (see classify)
+	TwoWay      bool    // -two-way: target changes come back to the source (see Select)
 	TextCopy    bool
 	PartKey     string // PARTITION BY clause of a partitioned table
 	Partitions  []Partition

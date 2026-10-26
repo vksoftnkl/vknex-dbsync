@@ -346,6 +346,7 @@ function renderTables() {
     else if (!t.updatedCol) notes.push('no change column: compared in full');
     if (t.partitions) notes.push(t.partitions + ' partitions');
     if (t.syncCol) notes.push('stamps ' + t.syncCol);
+    if (t.twoWay) notes.push('two-way: live changes come back');
     body.append(el('tr', '',
       el('td', 'mono', t.key),
       el('td', '', t.kind ? el('span', 'tag', t.kind) : el('span', 'muted', 'not listed')),

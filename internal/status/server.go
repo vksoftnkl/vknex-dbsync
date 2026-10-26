@@ -303,6 +303,10 @@ func settings(cfg *config.Config, logFile string) []Setting {
 	if cfg.Interval > 0 {
 		interval = "every " + cfg.Interval.String()
 	}
+	liveIDs := "off (same sequences as local)"
+	if cfg.TwoWayLiveIDs > 0 {
+		liveIDs = fmt.Sprint(cfg.TwoWayLiveIDs)
+	}
 	master := cfg.TableMaster
 	if master == "" {
 		master = "off (-txn-tables decides)"
@@ -317,6 +321,10 @@ func settings(cfg *config.Config, logFile string) []Setting {
 		{"Table master", master},
 		{"Instant kinds", list(cfg.InstantKinds, "none")},
 		{"Kind intervals", list(kinds, "none")},
+		{"Two-way sync (-two-way)", yn(cfg.TwoWay)},
+		{"Two-way kinds", list(cfg.TwoWayKinds, "none")},
+		{"Two-way conflicts keep", cfg.TwoWayWins},
+		{"Two-way live ids from", liveIDs},
 		{"Transaction tables (-txn-tables)", list(cfg.TxnTables, "none")},
 		{"Schemas", list(cfg.Schemas, "")},
 		{"Include", list(cfg.Include, "all tables")},

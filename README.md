@@ -7,7 +7,8 @@ It runs as its own small binary, separate from the NestJS backend:
 - only this tool holds both connection strings,
 - a heavy sync never slows down or crashes the live API,
 - it can run once, on a schedule, or as a 24/7 worker,
-- with `-instant`, masters, settings, ledgers and balances reach the live DB seconds after a change, transactions every 5 minutes and logs every hour; `public.db_table_master` decides which table is which.
+- with `-instant`, masters, settings, ledgers and balances reach the live DB seconds after a change, transactions every 5 minutes and logs every hour; `public.db_table_master` decides which table is which,
+- with `-two-way`, the master tables may be edited on the live DB too: those changes come back to the local DB.
 
 ## Build
 
@@ -33,7 +34,7 @@ internal/
   ddl/                -ddl: plans the CREATE/ALTER/DROP statements that make the target match the source
   notify/             -mail-to: mails when a sync fails, works again or the program stops
   status/             -ui: what the runs report, the status page (embedded HTML) and its small HTTP API
-  syncer/             one sync run: snapshot, full / incremental copy, sequences, sync state, -mark-synced
+  syncer/             one sync run: snapshot, full / incremental copy, sequences, sync state, -mark-synced, -two-way pull
 ```
 
 Dependencies only point down: `cmd` → `syncer` → `ddl` → `schema` → `pg`, `config`; `notify` and `status` sit beside `ddl` and need only `pg` and `config` (`syncer` reports into `status`, `cmd` serves it).
@@ -107,13 +108,17 @@ Every flag also reads an environment variable (or `.env`).
 | `-exclude` | `SYNC_EXCLUDE` | `_prisma_migrations` | Comma-separated tables to skip (`table` or `schema.table`) |
 | `-ddl` | `SYNC_DDL` | `false` | Apply the source's structure to the target first (see below) |
 | `-ddl-drop` | `SYNC_DDL_DROP` | `false` | With `-ddl`: also drop target tables, partitions and columns the source no longer has |
-| `-mark-synced` | `SYNC_MARK_SYNCED` | `false` | Set each table's sync column (`…_sync_date`) on both sides after a run (see below) |
+| `-mark-synced` | `SYNC_MARK_SYNCED` | `false` | Set each table's sync column (`dtm_sync_col` in `db_table_master`) on both sides after a run (see below) |
 | `-mark-txn` | `SYNC_MARK_TXN` | `true` | With `-mark-synced`, also set it on the interval tables; `false` = only the instant (master) tables |
 | `-instant` | `SYNC_INSTANT` | `false` | Mirror the `-instant-kinds` tables within seconds of a change; needs `-interval` (see below) |
-| `-table-master` | `SYNC_TABLE_MASTER` | `public.db_table_master` | Source table listing the tables by `dtm_kind`, read on every run (see below); empty = use `-txn-tables` |
+| `-table-master` | `SYNC_TABLE_MASTER` | `public.db_table_master` | Source table listing the tables by `dtm_kind`, with their sync column in `dtm_sync_col`, read on every run (see below); empty = use `-txn-tables` |
 | `-instant-kinds` | `SYNC_INSTANT_KINDS` | `MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM` | `dtm_kind` values mirrored within seconds |
 | `-kind-intervals` | `SYNC_KIND_INTERVALS` | `LOG:1h` | `kind:interval` for kinds the interval runs move less often than `-interval` |
 | `-txn-tables` | `SYNC_TXN_TABLES` | | Only with an empty `-table-master`: comma-separated tables (`table` or `schema.table`) synced every `-interval`, all others instant |
+| `-two-way` | `SYNC_TWO_WAY` | `false` | Also bring rows inserted, changed or deleted on the live DB in the `-two-way-kinds` tables back to the local DB; needs `-mark-synced` (see [Two-way master tables](#two-way-master-tables--two-way)) |
+| `-two-way-kinds` | `SYNC_TWO_WAY_KINDS` | `MASTER` | `dtm_kind` values synced both ways |
+| `-two-way-wins` | `SYNC_TWO_WAY_WINS` | `local` | A row changed on both sides since the last sync: `local` keeps the local version, `live` takes the live one |
+| `-two-way-live-ids` | `SYNC_TWO_WAY_LIVE_IDS` | `0` | Rows created on the live DB in the two-way tables get ids from this number on (e.g. `1000000000`), so they never collide with local ids; `0` = same sequences as local |
 | `-updated-cols` | `SYNC_UPDATED_COLS` | `updatedAt,updated_at` | Change-tracking column names |
 | `-overlap` | `SYNC_OVERLAP` | `5m` | Safety window re-read on each run |
 | `-deletes` | `SYNC_DELETES` | `true` | Mirror deletes |
@@ -160,7 +165,9 @@ Safety:
 
 ## Sync time (`-mark-synced`)
 
-The source tracks its own changes: each table has a sync column (the first timestamp column ending in `sync_date`, `sync_on`, `synced_on` or `syncdate`, the same rule as the `public.v_sync_tables` view). A `zz_sync_mark_dirty` trigger empties it whenever a row changes, so `NULL` means "not on the live DB yet". Deletes are logged in `public.sync_deleted_rows` with `sdr_sync_date` `NULL`.
+The source tracks its own changes: each table has a sync column, named in `dtm_sync_col` of `public.db_table_master` (e.g. `abj_sync_date` for `accounts.acc_bill_adjustment`). A `zz_sync_mark_dirty` trigger empties it whenever a row changes, so `NULL` means "not on the live DB yet". Deletes are logged in `public.sync_deleted_rows` with `sdr_sync_date` `NULL`.
+
+The tool reads `dtm_sync_col` in every run's snapshot, next to `dtm_kind`, so a column filled in or changed there is used from the next run on, without a restart. A table the master does not list, or lists with an empty `dtm_sync_col`, falls back to the rule of the `public.v_sync_tables` view: the first timestamp column ending in `sync_date`, else `sync_on`, `synced_on` or `syncdate`; with `-table-master ""` every table does. A `dtm_sync_col` that is not a timestamp column of its table is logged as a warning (`msg="sync column"`) and that rule is used instead. `-dry-run` shows each table's column as `stamps`.
 
 With `-mark-synced`, an incremental run also copies every row whose sync column is empty, even when its change column (`updated_at`) did not move: a row edited without touching `updated_at` still reaches the live DB before it is stamped. After the data:
 
@@ -189,6 +196,8 @@ The schedule comes from `dtm_kind` in `public.db_table_master` on the source, no
 | `TRANSACTION`, any other kind, inactive rows (`dtm_is_active = false`), tables missing from `db_table_master` | every `-interval` (5 minutes) |
 | `LOG` (`-kind-intervals LOG:1h`) | by the interval run nearest to each hour; after a restart, by the first run |
 
+`dtm_sync_col` in the same row names the table's sync column, the one `-mark-synced` stamps (see [Sync time](#sync-time--mark-synced)).
+
 `db_table_master` carries the notify trigger too: adding or changing a row there (say a `dtm_kind` from `TRANSACTION` to `MASTER`) re-sorts the tables within seconds, without a restart; a table that becomes instant is synced at once (`instant tables changed` in the log). A new table is created on the live DB by the next interval run (`-ddl`) and mirrored instantly from then on. `-dry-run` shows each table's `kind` and `sync` (`instant`, `every 5m0s`, `every 1h0m0s`); the interval runs that move the `LOG` tables log `with_kinds=LOG`.
 
 A foreign key from an instant table to an interval table (e.g. `accounts.acc_bill_balance` → `accounts.acc_voucher_header`) means a new instant row can reach the live DB before the row it points at, until the next interval run moves that one. With `-disable-triggers` the live DB accepts it in the meantime; without, the instant sync of that table fails and is retried until then. Such references are listed in a warning when the instant sync starts.
@@ -211,6 +220,39 @@ Things to know:
 - A statement trigger on a partitioned table does not fire for a statement that names one of its partitions; that is why the partitions carry the trigger too. A partition created later (the next fiscal year) gets it on the next start or `db_table_master` change; until then, changes made through the partitioned table itself (what the application does) are still noticed.
 - `vknex_sync.run_log` gets a row for every instant run (`mode = 'instant'`).
 - To take the triggers off the local database: `DROP SCHEMA vknex_sync CASCADE;` on the source.
+
+## Two-way master tables (`-two-way`)
+
+With `-two-way`, the tables of the `-two-way-kinds` kinds (default `MASTER` in `db_table_master`) may also be edited on the live DB: rows inserted, changed or deleted there come back to the local DB. Every other table stays one-way. It needs `-mark-synced`: an empty sync column is how a local row that changed since the last sync is told apart. A two-way table without a primary key or a sync column stays one-way, named in a warning (`msg="sync column"`). `-dry-run` shows `two_way=true` on the two-way tables and the live changes waiting to be pulled.
+
+How it works:
+
+1. On every two-way table of the **live** DB the tool puts a row trigger `zz_vknex_sync_capture`. It logs the key of each row a live user inserts, updates or deletes in `vknex_sync.live_changes` and notifies the sync. The sync's own writes are not logged (its transactions set `vknex_sync.applying`), so nothing echoes back. The trigger function runs as its owner (`SECURITY DEFINER`): the live application's database user needs no rights on `vknex_sync`.
+2. Before a two-way table is pushed, its logged keys are **pulled**: in one local transaction, each local row becomes what the live DB has now, written or deleted, with its sync column set to the pull time. With `-instant` a live change reaches the local DB within a second (0.6 s on localhost); a two-way table that is not instant is pulled at the start of every interval run, as is every table without `-instant`.
+3. Until a key is pulled, the push leaves that live row alone and the local row waiting, so a push that started before the pull saw a live change never overwrites or deletes it. When a pull fails (logged and mailed as `two-way pull failed`), the push goes on without those rows.
+4. Pulled rows are ordinary local writes: local triggers fire (audit log, `sync_deleted_rows`, …), foreign keys are checked, and sequences are moved past the pulled ids.
+
+**Conflicts.** A row changed on both sides since the last sync (its local sync column is empty, or its local delete waits in `sync_deleted_rows`):
+
+| `-two-way-wins` | Result |
+|---|---|
+| `local` (default) | The local version stays and the push writes it to the live DB; the live change is dropped |
+| `live` | The live version is written locally |
+
+Each conflict is logged as a warning (`two-way conflict`) with the keys. Unique keys work the same way: when a live row takes a value a local row holds (e.g. a customer code), one of them has to go: the live one with `local`, the local one with `live`.
+
+A row deleted on the live DB that local rows still point at (e.g. a customer whose bills are not on the live DB yet) is never deleted locally: that would fail, or cascade into those rows. It is kept and written back to the live DB (warning `deleted on the live DB, but local rows still point at them`).
+
+**Ids of new rows (`-two-way-live-ids`).** Both databases hand out ids from sequences that the sync keeps in step. Rows created on both sides between two syncs, or while the tunnel is down, can get the **same id**: two different rows then meet as one conflict, and one of them is lost. Set `-two-way-live-ids` (e.g. `1000000000`) whenever new master rows are created on both sides: the two-way tables' sequences on the live DB then hand out ids from that number on, and local ids stay below it. It has to fit the id column (`integer` ends at 2147483647).
+
+Things to know:
+
+- Only row changes are captured: a `TRUNCATE` on the live DB is not, and neither are changes made before the trigger went on.
+- `-mode full` reloads the live DB from the local one: live changes not pulled by then are lost.
+- A table that stops being two-way loses the trigger; its live changes not pulled yet are dropped, and the local rows win.
+- With `-instant` the sync also listens on the live DB; when that connection drops, the instant sync starts over a minute later and catches up.
+- Pulls are recorded in `vknex_sync.run_log` on the live DB with `mode = 'pull'`.
+- To take it off the live DB: `DROP FUNCTION vknex_sync.capture_change() CASCADE; DROP TABLE vknex_sync.live_changes;`
 
 ## Running it permanently
 
@@ -264,7 +306,7 @@ The page reads `table_state` and `run_log` from the live database at most every 
 
 ## Mail when it fails or stops (`-mail-to`)
 
-With `-mail-to` (comma-separated addresses) the sync sends a plain-text mail, subject `[vknex-dbsync] … on <host>`, with the error, `source -> target` and the log file:
+With `-mail-to` (comma-separated addresses) the sync sends a mail, subject `[vknex-dbsync] … on <host>`, from "VK Nex DB Sync". It is a styled HTML card (a coloured badge for the event, the error in a monospace box, a table with host, times, source, target and log file) with a plain-text version for clients that prefer one:
 
 - **sync failed** / **instant sync failed**: a run failed (tunnel down, Postgres restarting, a constraint, …). One mail when it starts failing, then one every `-mail-repeat` (default `1h`, `0` = none) while it keeps failing, so a dead tunnel does not mail on every retry.
 - **sync recovered** / **instant sync recovered**: the first run that works again after a failure mail. Only with `-interval`: a run-once process (Task Scheduler) mails every failed run and nothing else.
@@ -274,7 +316,7 @@ The mails go through `-smtp` (`host:port`) as `-smtp-user` / `-smtp-password`, f
 
 ## Things to know
 
-- **One-way only.** Anything written directly on the live DB to a synced table is overwritten or deleted on the next run. If live users also enter data, exclude those tables or use a different design.
+- **One-way, except the `-two-way` tables.** Anything written directly on the live DB to any other synced table is overwritten or deleted on the next run. If live users also enter data there, exclude those tables, make them two-way, or use a different design.
 - **Changes are found through `updatedAt`.** Prisma's `@updatedAt` sets it on every update through Prisma. Raw SQL updates that don't touch `updatedAt` are not picked up until the next full run. Tables without an `updatedAt` column are compared in full every run.
 - **Delete detection reads every primary key** of every table on each run. That is cheap for most tables; for very large ones run with `-deletes=false` on the frequent schedule and a second job with deletes on, e.g. hourly.
 - **Tables without a primary key** are deleted and reloaded on every run.
