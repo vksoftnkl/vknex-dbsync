@@ -27,9 +27,17 @@ type Querier interface {
 // Nearly every statement here is different, so preparing them first (pgx's
 // default) only doubles the round trips, which dominate over a slow link.
 func Connect(ctx context.Context, url string) (*pgx.Conn, error) {
+	return ConnectTo(ctx, url, "")
+}
+
+// ConnectTo is Connect to another database on url's server; "" = url's own.
+func ConnectTo(ctx context.Context, url, database string) (*pgx.Conn, error) {
 	cc, err := pgx.ParseConfig(url)
 	if err != nil {
 		return nil, err
+	}
+	if database != "" {
+		cc.Database = database
 	}
 	cc.DefaultQueryExecMode = pgx.QueryExecModeExec
 	return pgx.ConnectConfig(ctx, cc)

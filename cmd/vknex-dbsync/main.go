@@ -31,6 +31,7 @@ import (
 	"github.com/vksoftwares/vknex-dbsync/internal/config"
 	"github.com/vksoftwares/vknex-dbsync/internal/notify"
 	"github.com/vksoftwares/vknex-dbsync/internal/pg"
+	"github.com/vksoftwares/vknex-dbsync/internal/registry"
 	"github.com/vksoftwares/vknex-dbsync/internal/status"
 	"github.com/vksoftwares/vknex-dbsync/internal/syncer"
 )
@@ -107,7 +108,8 @@ func main() {
 		"two_way_kinds", strings.Join(cfg.TwoWayKinds, ","),
 		"two_way_wins", cfg.TwoWayWins,
 		"two_way_live_ids", cfg.TwoWayLiveIDs,
-		"mail_to", strings.Join(cfg.MailTo, ","))
+		"mail_to", strings.Join(cfg.MailTo, ","),
+		"client", cfg.ClientName)
 
 	if cfg.TableMaster != "" && len(cfg.TxnTables) > 0 {
 		log.Warn("SYNC_TXN_TABLES is ignored: "+cfg.TableMaster+" decides which tables are instant; remove it from .env", "tables", len(cfg.TxnTables))
@@ -117,6 +119,7 @@ func main() {
 	s.Status = st
 
 	if cfg.Interval <= 0 {
+		saveClient(ctx, cfg, log)
 		if err := s.RunOnce(ctx); err != nil {
 			log.Error("sync failed", "err", err)
 			n.Failed("sync", err)
@@ -151,7 +154,11 @@ func main() {
 		log.Info("stopped")
 		n.Stopped("It was told to stop: Ctrl-C, systemctl stop, the desktop icon's Stop or Task Manager > End task. Nothing is synced until it is started again.")
 	}
+	saved := false
 	for {
+		if !saved {
+			saved = saveClient(ctx, cfg, log)
+		}
 		runStart := time.Now()
 		if err := s.RunOnce(ctx); err != nil {
 			if ctx.Err() != nil {
@@ -191,6 +198,22 @@ func mailCrash(log *slog.Logger, n *notify.Notifier) {
 	log.Error("crashed", "panic", r, "stack", stack)
 	n.Crashed(r, stack)
 	os.Exit(1)
+}
+
+// saveClient puts -client-name in the client list on the live server (see
+// registry.Save). The sync does not depend on it, so a failure is only logged.
+// It reports whether nothing is left to do.
+func saveClient(ctx context.Context, cfg *config.Config, log *slog.Logger) bool {
+	if cfg.ClientName == "" || cfg.DryRun {
+		return true
+	}
+	db, err := registry.Save(ctx, cfg)
+	if err != nil {
+		log.Warn("client not saved in the client list; tried again before the next run", "client", cfg.ClientName, "err", err)
+		return false
+	}
+	log.Info("client saved in the client list", "client", cfg.ClientName, "db_name", db, "list", cfg.ClientDB+".public.client_master")
+	return true
 }
 
 // usable reports whether f can be written to. A GUI-subsystem process started

@@ -33,11 +33,12 @@ internal/
   schema/             table model; catalog introspection, table selection, FK ordering, schema compare
   ddl/                -ddl: plans the CREATE/ALTER/DROP statements that make the target match the source
   notify/             -mail-to: mails when a sync fails, works again or the program stops
+  registry/           -client-name: this client's row in the client list on the live server
   status/             -ui: what the runs report, the status page (embedded HTML) and its small HTTP API
   syncer/             one sync run: snapshot, full / incremental copy, sequences, sync state, -mark-synced, -two-way pull
 ```
 
-Dependencies only point down: `cmd` → `syncer` → `ddl` → `schema` → `pg`, `config`; `notify` and `status` sit beside `ddl` and need only `pg` and `config` (`syncer` reports into `status`, `cmd` serves it).
+Dependencies only point down: `cmd` → `syncer` → `ddl` → `schema` → `pg`, `config`; `notify`, `registry` and `status` sit beside `ddl` and need only `pg` and `config` (`syncer` reports into `status`, `cmd` serves it).
 
 ## First-time setup
 
@@ -136,6 +137,8 @@ Every flag also reads an environment variable (or `.env`).
 | `-mail-from` | `SYNC_MAIL_FROM` | `-smtp-user` | Sender address |
 | `-mail-repeat` | `SYNC_MAIL_REPEAT` | `1h` | While a sync keeps failing, mail again at most this often; `0` = once per outage |
 | `-mail-test` | `SYNC_MAIL_TEST` | `false` | Send a test mail to `-mail-to` and exit |
+| `-client-name` | `SYNC_CLIENT_NAME` | | On start, save this client in the client list on the live server (see [below](#client-list--client-name)); empty = not saved |
+| `-client-db` | `SYNC_CLIENT_DB` | `vknex_clients` | Database on the live server holding the client list (`public.client_master`) |
 
 ## Schema changes (`-ddl`)
 
@@ -313,6 +316,16 @@ With `-mail-to` (comma-separated addresses) the sync sends a mail, subject `[vkn
 - **stopped**: the program ended. Ctrl-C, `systemctl stop`, the desktop icon's Stop, Task Manager > End task, or a crash (the mail carries the stack trace; the Linux service starts it again after 30 s). A `kill -9`, a power cut or a machine that dies cannot send anything.
 
 The mails go through `-smtp` (`host:port`) as `-smtp-user` / `-smtp-password`, from `-mail-from` (default: the user). Port 465 is TLS from the start, any other port uses STARTTLS when the server offers it. Gmail: `smtp.gmail.com:587`, the Gmail address as user and an **app password** (Google account → Security → 2-Step Verification → App passwords), not the account password. After filling in `.env`, `vknex-dbsync -mail-test` sends a test mail and exits. Incomplete mail settings are a configuration error and the program does not start: `-mail-to` needs `-smtp`, and `-mail-from` when the user is not an address. `-dry-run` never mails.
+
+## Client list (`-client-name`)
+
+The live server keeps one list of its clients and the database each one's data is in, in the database `vknex_clients`:
+
+```sql
+SELECT * FROM public.client_master ORDER BY client_id;   -- client_id, client_name, db_name, created_on, updated_on
+```
+
+With `-client-name` the sync saves its own row there when it starts: the client name with the database of `-target` as `db_name` (`erp_rehearsal` for `.../erp_rehearsal`). A database not listed yet gets a new row and `client_id`; a listed one gets the new name when it changed, otherwise it is left alone, so `updated_on` (set by a trigger) is the time of the last real change. The list is on the same server as the target and is reached with the same user and password; `-client-db` names another database for it. The sync does not depend on the list: when it cannot be written (the database or table is missing, the tunnel is down) the sync logs a warning and tries again before the next run. `-dry-run` writes nothing there.
 
 ## Things to know
 

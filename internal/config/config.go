@@ -58,6 +58,8 @@ type Config struct {
 	SMTPPassword    string
 	MailRepeat      time.Duration // while a sync keeps failing, mail again at most this often; 0 = once
 	MailTest        bool
+	ClientName      string // saved with the target's database name in ClientDB's client_master; "" = not saved
+	ClientDB        string // database on the target's server holding the client list
 }
 
 // Load reads .env, then the flags (defaulting to the environment), and checks the result.
@@ -109,6 +111,8 @@ func Load(args []string) (*Config, error) {
 	fs.StringVar(&c.SMTPPassword, "smtp-password", env("SYNC_SMTP_PASSWORD", ""), "mail server password (Gmail: an app password) [SYNC_SMTP_PASSWORD]")
 	fs.DurationVar(&c.MailRepeat, "mail-repeat", envDur("SYNC_MAIL_REPEAT", time.Hour), "while a sync keeps failing, mail again at most this often; 0 = once per outage [SYNC_MAIL_REPEAT]")
 	fs.BoolVar(&c.MailTest, "mail-test", envBool("SYNC_MAIL_TEST", false), "send a test mail to -mail-to and exit [SYNC_MAIL_TEST]")
+	fs.StringVar(&c.ClientName, "client-name", env("SYNC_CLIENT_NAME", ""), "on start, save this client name with the target's database name in public.client_master of -client-db; empty = not saved [SYNC_CLIENT_NAME]")
+	fs.StringVar(&c.ClientDB, "client-db", env("SYNC_CLIENT_DB", "vknex_clients"), "database on the target's server holding the client list (public.client_master) [SYNC_CLIENT_DB]")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -130,6 +134,8 @@ func Load(args []string) (*Config, error) {
 	c.TableMaster = strings.TrimSpace(c.TableMaster)
 	c.Mode = strings.ToLower(strings.TrimSpace(c.Mode))
 	c.MailTo = splitList(*mailTo)
+	c.ClientName = strings.TrimSpace(c.ClientName)
+	c.ClientDB = strings.TrimSpace(c.ClientDB)
 
 	switch {
 	case len(c.Schemas) == 0:
@@ -160,6 +166,8 @@ func Load(args []string) (*Config, error) {
 		return nil, fmt.Errorf("unknown -two-way-wins %q (use local or live)", c.TwoWayWins)
 	case c.TwoWayLiveIDs < 0:
 		return nil, errors.New("-two-way-live-ids must be 0 (off) or the first id handed out on the target, e.g. 1000000000")
+	case c.ClientName != "" && c.ClientDB == "":
+		return nil, errors.New("-client-name needs -client-db, the database holding the client list, e.g. vknex_clients")
 	}
 	for kind := range c.KindIntervals {
 		if slices.Contains(c.InstantKinds, kind) {

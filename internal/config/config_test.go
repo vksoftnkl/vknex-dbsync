@@ -49,6 +49,25 @@ func TestParseKindIntervals(t *testing.T) {
 	}
 }
 
+func TestLoadClient(t *testing.T) {
+	load := func(extra ...string) (*Config, error) {
+		return Load(append([]string{"-source", "postgres://a/x", "-target", "postgres://b/x"}, extra...))
+	}
+	c, err := load("-client-name", "  SRI LAKSHMI TIMBERS ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ClientName != "SRI LAKSHMI TIMBERS" || c.ClientDB != "vknex_clients" {
+		t.Fatalf("got name=%q db=%q", c.ClientName, c.ClientDB)
+	}
+	if c, err := load(); err != nil || c.ClientName != "" {
+		t.Fatalf("without -client-name: name=%q err=%v", c.ClientName, err)
+	}
+	if _, err := load("-client-name", "x", "-client-db", " "); err == nil {
+		t.Error("empty -client-db: no error")
+	}
+}
+
 func TestLoadTwoWay(t *testing.T) {
 	load := func(extra ...string) (*Config, error) {
 		return Load(append([]string{"-source", "postgres://a/x", "-target", "postgres://b/x"}, extra...))

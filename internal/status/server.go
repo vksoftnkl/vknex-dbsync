@@ -314,7 +314,12 @@ func settings(cfg *config.Config, logFile string) []Setting {
 	if logFile == "" {
 		logFile = "console"
 	}
+	client := "not saved"
+	if cfg.ClientName != "" {
+		client = cfg.ClientName + " (in " + cfg.ClientDB + ".public.client_master)"
+	}
 	return []Setting{
+		{"Client (-client-name)", client},
 		{"Mode", cfg.Mode},
 		{"Interval runs", interval},
 		{"Instant mirroring", yn(cfg.Instant)},
