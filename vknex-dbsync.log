@@ -6349,3 +6349,104 @@ time=2026-10-27T12:59:34.907+05:30 level=WARN msg="sync column" detail="accounts
 time=2026-10-27T13:00:47.393+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m23.509s
 time=2026-10-27T13:04:36.735+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
 time=2026-10-27T13:05:42.496+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m18.61s
+time=2026-10-27T13:09:35.369+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:10:53.206+05:30 level=INFO msg="vknex-dbsync starting" source=postgres@localhost:5432/ERP target=postgres@127.0.0.1:5433/erp_rehearsal mode=incremental schemas=public,fixed,accounts,sales,stock,inventory,audit,purchase deletes=true ddl=true ddl_drop=true mark_synced=true mark_txn=false interval=5m0s instant=true table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM kind_intervals=LOG:1h0m0s two_way=true two_way_kinds=MASTER two_way_wins=local two_way_live_ids=0 mail_to=prathapprasanna269@gmail.com client="Amazon Retail India Private Limited"
+time=2026-10-27T13:10:53.222+05:30 level=WARN msg="SYNC_TXN_TABLES is ignored: public.db_table_master decides which tables are instant; remove it from .env" tables=71
+time=2026-10-27T13:10:53.251+05:30 level=INFO msg="status page" url=http://127.0.0.1:7645/
+time=2026-10-27T13:10:53.302+05:30 level=ERROR msg="two-way pull failed; will retry" err="connect target: failed to connect to `user=postgres database=erp_rehearsal`: 127.0.0.1:5433 (127.0.0.1): dial error: dial tcp 127.0.0.1:5433: connect: connection refused" in=5s
+time=2026-10-27T13:10:53.302+05:30 level=WARN msg="client not saved in the client list; tried again before the next run" client="Amazon Retail India Private Limited" err="connect vknex_clients: failed to connect to `user=postgres database=vknex_clients`: 127.0.0.1:5433 (127.0.0.1): dial error: dial tcp 127.0.0.1:5433: connect: connection refused"
+time=2026-10-27T13:10:53.335+05:30 level=ERROR msg="could not send the mail" subject="Two-way pull failed" err="dial tcp: lookup smtp.gmail.com on 127.0.0.53:53: server misbehaving"
+time=2026-10-27T13:10:53.365+05:30 level=ERROR msg="sync failed; will retry next interval" err="connect source: failed to connect to `user=postgres database=ERP`:\n\t127.0.0.1:5432 (localhost): server error: FATAL: the database system is starting up (SQLSTATE 57P03)\n\t127.0.0.1:5432 (localhost): server error: FATAL: the database system is starting up (SQLSTATE 57P03)"
+time=2026-10-27T13:10:53.366+05:30 level=ERROR msg="instant sync stopped; restarting" err="connect source: failed to connect to `user=postgres database=ERP`:\n\t127.0.0.1:5432 (localhost): server error: FATAL: the database system is starting up (SQLSTATE 57P03)\n\t127.0.0.1:5432 (localhost): server error: FATAL: the database system is starting up (SQLSTATE 57P03)" in=1m0s
+time=2026-10-27T13:10:53.366+05:30 level=ERROR msg="could not send the mail" subject="Sync failed" err="dial tcp: lookup smtp.gmail.com on 127.0.0.53:53: server misbehaving"
+time=2026-10-27T13:10:53.366+05:30 level=ERROR msg="could not send the mail" subject="Instant sync failed" err="dial tcp: lookup smtp.gmail.com on 127.0.0.53:53: server misbehaving"
+time=2026-10-27T13:10:58.336+05:30 level=ERROR msg="two-way pull failed; will retry" err="connect target: failed to connect to `user=postgres database=erp_rehearsal`: 127.0.0.1:5433 (127.0.0.1): dial error: dial tcp 127.0.0.1:5433: connect: connection refused" in=10s
+time=2026-10-27T13:11:14.375+05:30 level=INFO msg="two-way pull listening on the live DB" two_way_kinds=MASTER
+time=2026-10-27T13:11:20.094+05:30 level=INFO msg="mail sent" subject="Two-way pull recovered" to=prathapprasanna269@gmail.com
+time=2026-10-27T13:11:55.717+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:11:55.717+05:30 level=WARN msg="instant tables reference interval tables: a new row can reach the live DB before the row it points at, until the next interval run moves that one (without -disable-triggers its instant sync fails and retries until then)" references="accounts.acc_bill_adjustment -> accounts.acc_pdc_register,accounts.acc_bill_adjustment -> accounts.acc_tender_detail,accounts.acc_bill_adjustment -> accounts.acc_voucher_header,accounts.acc_bill_balance -> accounts.acc_voucher_header,sales.loyalty_coupon_txn -> accounts.acc_tender_detail,sales.loyalty_ledger -> accounts.acc_tender_detail"
+time=2026-10-27T13:11:55.722+05:30 level=INFO msg="instant sync started" instant_tables=146 txn_tables=47 table_master=public.db_table_master instant_kinds=MASTER,SETTING,METADATA,LEDGER,BALANCE,SYSTEM two_way_tables=74 two_way_kinds=MASTER
+time=2026-10-27T13:15:56.788+05:30 level=INFO msg="client saved in the client list" client="Amazon Retail India Private Limited" db_name=erp_rehearsal list=vknex_clients.public.client_master
+time=2026-10-27T13:17:05.924+05:30 level=INFO msg="rows written" table=fixed.form_section rows=2 scanned=61
+time=2026-10-27T13:17:07.123+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:17:14.377+05:30 level=WARN msg="another sync is already running against this target; skipping this run"
+time=2026-10-27T13:17:15.771+05:30 level=INFO msg="rows written" table=public._erp_seed_history rows=36 scanned=43
+time=2026-10-27T13:17:19.534+05:30 level=INFO msg="mail sent" subject="Sync recovered" to=prathapprasanna269@gmail.com
+time=2026-10-27T13:17:20.930+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=chk_led_sez_consistency
+time=2026-10-27T13:17:22.727+05:30 level=INFO msg="NOT VALID constraint set aside for the data copy, re-added after" table=accounts.acc_ledger_master constraint=ck_led_tds_pair
+time=2026-10-27T13:18:39.523+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"chk_led_sez_consistency\" CHECK (((led_is_sez = false) OR (((led_gst_party_reg_type)::text = 'REGULAR'::text) AND (led_gstin_no IS NOT NULL) AND (btrim((led_gstin_no)::text) <> ''::text)))) NOT VALID"
+time=2026-10-27T13:18:39.814+05:30 level=INFO msg="schema change" sql="ALTER TABLE \"accounts\".\"acc_ledger_master\" ADD CONSTRAINT \"ck_led_tds_pair\" CHECK (((led_is_tds_applicable = false) OR ((led_tds_deductee_type IS NOT NULL) AND (led_tds_nature_of_payment IS NOT NULL)))) NOT VALID"
+time=2026-10-27T13:18:40.418+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-27T13:18:42.958+05:30 level=INFO msg="instant sync complete" tables="accounts.acc_ledger_role,accounts.acc_tender_types,accounts.till_approval_authority,accounts.till_approval_rule,accounts.till_denomination and 141 more" rows_written=38 rows_deleted=0 took=6m45.159s
+time=2026-10-27T13:18:42.964+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=3
+time=2026-10-27T13:18:47.375+05:30 level=INFO msg="mail sent" subject="Instant sync recovered" to=prathapprasanna269@gmail.com
+time=2026-10-27T13:21:17.866+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:21:21.686+05:30 level=WARN msg="another sync is already running against this target; skipping this run"
+time=2026-10-27T13:26:15.738+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:26:19.680+05:30 level=WARN msg="another sync is already running against this target; skipping this run"
+time=2026-10-27T13:31:08.529+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:32:56.204+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=47 rows_read=8067 rows_written=0 rows_deleted=0 took=1m59.408s with_kinds=LOG
+time=2026-10-27T13:36:26.145+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:37:59.280+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=2m2.483s
+time=2026-10-27T13:41:20.356+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:42:33.962+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m37.164s
+time=2026-10-27T13:46:17.633+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:47:32.534+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m35.728s
+time=2026-10-27T13:51:29.223+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:53:10.149+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=2m13.321s
+time=2026-10-27T13:56:41.806+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T13:57:52.801+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m55.972s
+time=2026-10-27T14:01:15.168+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:02:22.445+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m25.614s
+time=2026-10-27T14:06:19.591+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:07:33.249+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m36.391s
+time=2026-10-27T14:11:16.545+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:12:27.339+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m30.469s
+time=2026-10-27T14:17:09.004+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:18:30.796+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=2m33.896s
+time=2026-10-27T14:21:17.105+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:22:26.150+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m29.249s
+time=2026-10-27T14:26:17.846+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:27:29.027+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m32.099s
+time=2026-10-27T14:31:16.791+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:33:04.138+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=47 rows_read=8067 rows_written=0 rows_deleted=0 took=2m7.183s with_kinds=LOG
+time=2026-10-27T14:36:56.724+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:38:30.657+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=2m33.648s
+time=2026-10-27T14:41:29.685+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:42:51.940+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m54.837s
+time=2026-10-27T14:46:14.478+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:47:57.057+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m59.95s
+time=2026-10-27T14:51:21.132+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:52:59.333+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=2m2.226s
+time=2026-10-27T14:56:15.529+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T14:57:29.745+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m32.637s
+time=2026-10-27T15:01:30.451+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:04:21.241+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=3m24.132s
+time=2026-10-27T15:06:17.319+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:07:26.631+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m29.52s
+time=2026-10-27T15:11:16.178+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:12:25.330+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m28.218s
+time=2026-10-27T15:16:14.190+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:17:49.978+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m52.865s
+time=2026-10-27T15:21:40.842+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:22:51.975+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m54.856s
+time=2026-10-27T15:26:15.054+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:27:56.458+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m59.337s
+time=2026-10-27T15:31:14.261+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:32:57.691+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=47 rows_read=8067 rows_written=0 rows_deleted=0 took=2m0.569s with_kinds=LOG
+time=2026-10-27T15:36:20.120+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:37:36.415+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m39.239s
+time=2026-10-27T15:41:36.589+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:43:21.144+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=2m23.959s
+time=2026-10-27T15:46:27.640+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"
+time=2026-10-27T15:47:40.346+05:30 level=INFO msg="sync complete" mode=incremental schema_changes=0 tables=36 rows_read=2926 rows_written=0 rows_deleted=0 took=1m43.16s
+time=2026-10-27T15:49:04.568+05:30 level=INFO msg="rows written" table=public.user_master rows=1 scanned=39
+time=2026-10-27T15:49:04.922+05:30 level=INFO msg="rows written" table=fixed.device_master rows=1 scanned=24
+time=2026-10-27T15:49:05.805+05:30 level=INFO msg="sync time set on target" rows=2 tables=2
+time=2026-10-27T15:49:06.550+05:30 level=INFO msg="instant sync complete" tables=public.user_master,fixed.device_master rows_written=2 rows_deleted=0 took=7.846s
+time=2026-10-27T15:49:06.563+05:30 level=INFO msg="sync time set on source" rows=2 deletes=0 still_waiting=0
+time=2026-10-27T15:51:20.793+05:30 level=INFO msg="rows written" table=fixed.grid_columns rows=1 scanned=2787
+time=2026-10-27T15:51:22.007+05:30 level=INFO msg="sync time set on target" rows=1 tables=1
+time=2026-10-27T15:51:23.278+05:30 level=INFO msg="instant sync complete" tables=fixed.grid_columns rows_written=1 rows_deleted=0 took=20.061s
+time=2026-10-27T15:51:23.280+05:30 level=INFO msg="sync time set on source" rows=1 deletes=0 still_waiting=0
+time=2026-10-27T15:51:25.038+05:30 level=WARN msg="sync column" detail="accounts.acc_cheque_book: MASTER table without a sync column; synced one way only"

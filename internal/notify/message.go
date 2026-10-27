@@ -150,11 +150,11 @@ func messageID(now time.Time, from string) string {
 func (n *Notifier) text(m *message, facts []fact, sent string) string {
 	var b strings.Builder
 	title := m.Event + " on " + n.host
-	b.WriteString(title + "\n" + strings.Repeat("=", len(title)) + "\n\n")
-	b.WriteString(wrap(m.Summary, 72) + "\n")
+	fmt.Fprintf(&b, "%s\n%s\n\n", title, strings.Repeat("=", len(title)))
+	fmt.Fprintf(&b, "%s\n", wrap(m.Summary, 72))
 	if m.Detail != "" {
-		b.WriteString("\n" + m.Label + "\n" + strings.Repeat("-", len(m.Label)) + "\n")
-		b.WriteString(strings.TrimRight(m.Detail, "\n") + "\n")
+		fmt.Fprintf(&b, "\n%s\n%s\n", m.Label, strings.Repeat("-", len(m.Label)))
+		fmt.Fprintf(&b, "%s\n", strings.TrimRight(m.Detail, "\n"))
 	}
 	b.WriteString("\n")
 	width := 0
@@ -164,7 +164,7 @@ func (n *Notifier) text(m *message, facts []fact, sent string) string {
 	for _, f := range facts {
 		fmt.Fprintf(&b, "%-*s  %s\n", width, f.Key, f.Value)
 	}
-	b.WriteString("\n-- \nSent by vknex-dbsync on " + n.host + " at " + sent + "\n")
+	fmt.Fprintf(&b, "\n-- \nSent by vknex-dbsync on %s at %s\n", n.host, sent)
 	return b.String()
 }
 

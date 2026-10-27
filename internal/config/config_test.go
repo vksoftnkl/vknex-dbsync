@@ -1,10 +1,26 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestLoadDotEnv(t *testing.T) {
+	dir := t.TempDir()
+	if err := loadDotEnv(filepath.Join(dir, "missing.env")); err != nil {
+		t.Fatalf("missing file: %v", err)
+	}
+	long := filepath.Join(dir, "long.env")
+	if err := os.WriteFile(long, []byte("VKNEX_TEST_LONG="+strings.Repeat("x", 70000)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadDotEnv(long); err == nil {
+		t.Error("line over 64 KiB: no error")
+	}
+}
 
 func TestLoadMail(t *testing.T) {
 	load := func(extra ...string) (*Config, error) {

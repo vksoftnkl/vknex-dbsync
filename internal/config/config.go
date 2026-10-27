@@ -64,9 +64,13 @@ type Config struct {
 
 // Load reads .env, then the flags (defaulting to the environment), and checks the result.
 func Load(args []string) (*Config, error) {
-	loadDotEnv(".env")
+	if err := loadDotEnv(".env"); err != nil {
+		return nil, err
+	}
 	if exe, err := os.Executable(); err == nil { // a double-clicked or scheduled binary may start elsewhere
-		loadDotEnv(filepath.Join(filepath.Dir(exe), ".env"))
+		if err := loadDotEnv(filepath.Join(filepath.Dir(exe), ".env")); err != nil {
+			return nil, err
+		}
 	}
 
 	c := &Config{}
@@ -303,11 +307,13 @@ func envDur(k string, def time.Duration) time.Duration {
 	return def
 }
 
-// loadDotEnv reads KEY=VALUE lines; real environment variables win.
-func loadDotEnv(path string) {
+// loadDotEnv reads KEY=VALUE lines; real environment variables win. A file
+// that cannot be opened is skipped; one that breaks off while being read is an
+// error, so that the settings after the break are not silently missing.
+func loadDotEnv(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
-		return
+		return nil
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
@@ -326,4 +332,8 @@ func loadDotEnv(path string) {
 			os.Setenv(k, v)
 		}
 	}
+	if err := sc.Err(); err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	return nil
 }
