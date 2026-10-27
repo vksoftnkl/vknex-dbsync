@@ -2,3 +2,5 @@
 /vknex-dbsync.exe
 .env
 /dist/
+/vknex-dbsync.log
+/vknex-dbsync.log.*

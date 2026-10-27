@@ -26,6 +26,9 @@ type message struct {
 	Label   string // heading of Detail: "Error", "Panic"
 	Detail  string // the error or the stack trace, in monospace; "" = none
 	Facts   []fact // the details table; Host, Source, Target and Log are added
+
+	written time.Time // set by Notifier.mail
+	held    bool      // a send failed: it goes out late, and says so
 }
 
 // fact is one row of the details table.
@@ -75,6 +78,9 @@ func (n *Notifier) subject(m *message) string {
 // the data flows and the log file last.
 func (n *Notifier) facts(m *message) []fact {
 	all := append([]fact{{Key: "Host", Value: n.host}}, m.Facts...)
+	if m.held {
+		all = append(all, fact{Key: "Delayed", Value: "Written at " + stamp(m.written) + "; held back while the mail server could not be reached"})
+	}
 	all = append(all, mono("Source", n.source), mono("Target", n.target))
 	if n.logFile != "" {
 		all = append(all, mono("Log", n.logFile))

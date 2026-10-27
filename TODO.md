@@ -1,0 +1,20 @@
+# TODO
+
+Improvements found by reading the code and `vknex-dbsync.log` (2026-10-21 to 2026-10-27).
+
+## Should add
+
+- [x] **1. Explain configuration errors.** A missing database, a wrong password or an unknown user now carries a hint of what to check in the URL (`pg.explain`), shown in the log, on the status page and in the mail. For a missing database on this machine's port 5432 it points at the SSH tunnel's port. Retries stay as they are: most of the 1,252 `database does not exist` errors came from the per-table retry storm already fixed on 2026-10-23, and the backoff already caps retries at one a minute.
+- [x] **2. Keep alert mails that fail to send.** A mail the mail server cannot take waits and goes out with the next mail or after a minute, oldest first, with a *Delayed* row. SMTP 5xx refusals are not retried; at most 50 wait; a stopping or run-once process drops them (`notify.flush`, `notify.wait`). Tests: `TestUnsentWait`, `TestUnsentDropped`.
+- [x] **3. Rotate the log file and take it out of git.** `internal/logfile` rotates at 10 MB and keeps `.1`–`.5`, by copying and truncating so systemd's `append:` and `tail -f` keep working. `vknex-dbsync.log*` is in `.gitignore` and the log is no longer tracked (`git rm --cached`; the file stays on disk).
+- [x] **4. Faster runs.** Measured on a sandbox with a 580 ms round trip (40 tables): nothing changed 2m07s → 12s, with changes 2m27s → 24.5s; an instant update is 7 round trips (4.1 s). How:
+  - Before staging, the source checks locally which tables changed and fingerprints their keys (or rows, for tables staged whole); the target's fingerprints come back in one batch with the stage tables (`syncer/look.go`). A table with nothing to move costs no round trip of its own, and a table without a primary key is no longer reloaded every run.
+  - The target catalog is read in one batch (`pg.Prefetch`, `schema.LoadQueries`, `ddl.InfoQueries`); the DDL probe transaction opens only when a definition needs probing.
+  - Stage tables are created in one batch; the unique-key swaps, upserts, cycle fills and deletes go in one batch (`queue` in `incremental.go`); the lock and the watermarks, and the sequences and the run state, share a round trip; `-naive-tz` is checked on the source.
+- [x] **5. Find deletes without reading every primary key.** After #4 the keys were copied only for tables with inserted or deleted rows; now, before copying them, the target fingerprints the keys it will hold with the staged rows written and the rows in `public.sync_deleted_rows` deleted (`settledSQL`). When that matches, the logged rows are deleted and no key is copied (also without `-mark-synced` when rows were only inserted). The log is only trusted where the fingerprint confirms it: an unlogged delete falls back to copying the keys. Checked in the sandbox: inserts only, logged delete, delete + re-insert of the same id, unique swap, unlogged delete.
+
+## Good to add
+
+- [x] **6. `-verify` command.** Compares every synced table by row count and checksum (the sync's row fingerprint), one snapshot and one batch per side; logs each table that differs (structure, row count, or content) and exits 0 / 3 (differ) / 1 (failed). Checked in the sandbox: a value changed, a row deleted and a column dropped on the target were all found; README documents repairing one table by deleting its `table_state` row.
+- [x] **7. Login for the status page.** `-ui-password` / `SYNC_UI_PASSWORD`: HTTP Basic (any user name), constant-time compare, half a second's wait after a wrong password; a warning at start when the page is reachable from other machines without one. "Sync now" now needs a header only the page's script sends, so another website open in the same browser can no longer trigger it (this was open before, password or not).
+- [x] **8. Health check URL.** `GET /health`, without password: 200 `ok`/`starting`, 503 `failing`/`stalled`/`instant-down`/`instant-retrying`, with a short JSON reason that names no host or error text (`status.HealthOf`). The desktop icon's "is the page up" check uses it, so it keeps working behind a password.

@@ -35,15 +35,13 @@ func (p *Plan) Count() int { return len(p.EnumValues) + len(p.Before) + len(p.Af
 // Build plans the schema changes, probing the target in a transaction that
 // is always rolled back (see prober).
 func Build(ctx context.Context, dst *pgx.Conn, tables, dstAll map[string]*schema.Table, srcInfo, dstInfo *Info, cfg *config.Config) (*Plan, error) {
-	tx, err := dst.Begin(ctx)
-	if err != nil {
-		return nil, err
+	p := &prober{ctx: ctx, conn: dst, copies: map[string]string{}}
+	defer p.close()
+	plan, err := build(tables, dstAll, srcInfo, dstInfo, cfg, p)
+	if err == nil && p.err != nil {
+		return nil, p.err // the plan may hold changes a probe would have ruled out
 	}
-	defer tx.Rollback(context.Background())
-	if _, err := tx.Exec(ctx, "SET LOCAL search_path = pg_catalog"); err != nil {
-		return nil, err
-	}
-	return build(tables, dstAll, srcInfo, dstInfo, cfg, &prober{ctx: ctx, tx: tx, copies: map[string]string{}})
+	return plan, err
 }
 
 // builder collects statements into groups that run in a fixed order.

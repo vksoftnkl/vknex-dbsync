@@ -29,6 +29,7 @@ go test ./...
 cmd/vknex-dbsync/     main: flags, logging, signal handling, -interval loop
 internal/
   config/             Config: flags, environment variables, .env
+  logfile/            -log-file: the log file, rotated by size
   pg/                 low-level Postgres: connect, identifier/literal quoting, COPY streaming
   schema/             table model; catalog introspection, table selection, FK ordering, schema compare
   ddl/                -ddl: plans the CREATE/ALTER/DROP statements that make the target match the source
@@ -38,7 +39,7 @@ internal/
   syncer/             one sync run: snapshot, full / incremental copy, sequences, sync state, -mark-synced, -two-way pull
 ```
 
-Dependencies only point down: `cmd` → `syncer` → `ddl` → `schema` → `pg`, `config`; `notify`, `registry` and `status` sit beside `ddl` and need only `pg` and `config` (`syncer` reports into `status`, `cmd` serves it).
+Dependencies only point down: `cmd` → `syncer` → `ddl` → `schema` → `pg`, `config`; `logfile` stands alone; `notify`, `registry` and `status` sit beside `ddl` and need only `pg` and `config` (`syncer` reports into `status`, `cmd` serves it).
 
 ## First-time setup
 
@@ -75,7 +76,7 @@ Data is streamed with PostgreSQL `COPY` straight from source to target; rows nev
 
 | Step | What happens |
 |---|---|
-| 1. Stage | Rows changed since the last run (`updatedAt >= last_sync - overlap`) are copied into temp tables on the target. Tables without `updatedAt` are staged in full. If deletes are on, all source primary keys are staged too. |
+| 1. Stage | First a look at what changed, which costs one round trip for all tables: the source checks locally whether a table has rows changed since the last run (`updatedAt >= last_sync - overlap`), and a fingerprint of its primary keys (with deletes on) or, for a table staged in full, of its rows is compared with the target's. Then the changed rows are copied into temp tables on the target. Tables without `updatedAt` are staged in full unless their rows match the target's. With deletes on and keys that differ from the target's, the target checks in one more round trip whether the staged rows and the rows in the source's delete log (`public.sync_deleted_rows`, with `-mark-synced`) account for the difference; then the logged rows are the ones to delete. Only otherwise are all source primary keys staged. A table with nothing to move gets no temp table at all. |
 | 2. Unique swaps | Target rows that are gone from the source and block an incoming row on a unique key (e.g. product code deleted and re-created) are removed first. |
 | 3. Upsert | `INSERT ... ON CONFLICT DO UPDATE`, parents first. Unchanged rows are skipped (`IS DISTINCT FROM`), so re-reading the overlap window costs no writes. |
 | 4. FK cycles | For tables that reference each other (e.g. `Branch.managerId` ↔ `Employee.branchId`), one nullable FK column is written as NULL in step 3 and filled in here. |
@@ -103,6 +104,7 @@ Every flag also reads an environment variable (or `.env`).
 | `-mode` | `SYNC_MODE` | `incremental` | `incremental` or `full` |
 | `-yes` | `SYNC_YES` | `false` | Required for `-mode full` |
 | `-dry-run` | `SYNC_DRY_RUN` | `false` | Print plan and row counts only |
+| `-verify` | `SYNC_VERIFY` | `false` | Compare every synced table with the live DB by row count and checksum, report the ones that differ and exit (see [below](#checking-the-live-copy--verify)) |
 | `-interval` | `SYNC_INTERVAL` | `0` | Repeat every interval (`5m`, `1h`); `0` = run once |
 | `-schema` | `SYNC_SCHEMA` | `public` | Comma-separated schemas to sync, e.g. `public,accounts,sales` |
 | `-include` | `SYNC_INCLUDE` | all | Comma-separated tables to sync (`table` or `schema.table`) |
@@ -128,8 +130,9 @@ Every flag also reads an environment variable (or `.env`).
 | `-lock-timeout` | `SYNC_LOCK_TIMEOUT` | `30s` | Give up if a live table stays locked this long |
 | `-meta-schema` | `SYNC_META_SCHEMA` | `vknex_sync` | Schema for sync state on the target |
 | `-log-json` | `SYNC_LOG_JSON` | `false` | JSON log lines |
-| `-log-file` | `SYNC_LOG_FILE` | stdout | Append the logs to this file; without a console (Windows background build) `vknex-dbsync.log` next to the binary |
+| `-log-file` | `SYNC_LOG_FILE` | stdout | Append the logs to this file; without a console (Windows background build) `vknex-dbsync.log` next to the binary. At 10 MB its content moves to `<file>.1` (older ones to `.2` … `.5`, the oldest is dropped) and the file starts again empty |
 | `-ui` | `SYNC_UI` | `127.0.0.1:7645` | With `-interval`: serve the [status page](#status-page--ui) at this `host:port`; empty = none |
+| `-ui-password` | `SYNC_UI_PASSWORD` | | Password the status page asks for (any user name); `/health` needs none; empty = no password |
 | `-mail-to` | `SYNC_MAIL_TO` | | Comma-separated addresses mailed when a sync fails, works again or the program stops (see below); empty = no mail |
 | `-smtp` | `SYNC_SMTP` | | Mail server `host:port`, e.g. `smtp.gmail.com:587` |
 | `-smtp-user` | `SYNC_SMTP_USER` | | Mail server login; empty = none |
@@ -215,7 +218,7 @@ How it works:
 4. Schema changes (`-ddl`) stay with the interval runs. An interval run that has schema changes to apply moves **every** table, not just the transaction tables, so that the constraints, indexes and `NOT NULL` it adds after the data find every table current. Instant syncs pause while it runs (`instant sync paused` … `resumed`). An instant table whose structure changed locally waits for that run (logged as a warning). New tables get the trigger after it.
 5. When one table's data makes a run fail, the tables are tried one at a time, in between new changes, so one table cannot hold up the others. Connection errors, lock timeouts and a pause retry the whole set: after 5 s, doubling up to 1 minute (a pause keeps checking every 5 s).
 
-A change takes 0.3 s plus one sync of its table, about 9 round trips: well under a second on a local network, about 5.5 s over a 576 ms link.
+A change takes 0.3 s plus one sync of its table, about 7 round trips for an update: well under a second on a local network, about 4.4 s over a 580 ms link.
 
 Things to know:
 
@@ -293,6 +296,25 @@ When the live database is only reachable through SSH, pass the `~/.ssh/config` h
 
 **PM2** (if you already use it): `pm2 start ./vknex-dbsync --name dbsync -- -interval 5m`
 
+## Checking the live copy (`-verify`)
+
+`vknex-dbsync -verify` compares every synced table on the live DB with the local one and changes nothing:
+
+```
+level=WARN msg="table differs" table=public.t05 source_rows=3000 target_rows=3000 detail="same row count, different content"
+level=WARN msg="table differs" table=accounts.t06 source_rows=3000 target_rows=2999 detail="rows differ"
+level=WARN msg="table differs" table=accounts.t10 structure="column accounts.t10.note is missing on target"
+msg="verify complete" tables=40 same=37 differ=3 took=5.3s
+```
+
+Each side is read in one snapshot, and every table is checksummed in one batch of queries, so it costs a few round trips however many tables there are; the databases do the reading. The exit status is 0 when every table matches, 3 when some differ and 1 when the check itself failed, so a script or a scheduled task can act on it. It runs once and exits, also with `SYNC_INTERVAL` set in `.env`, and can run while the sync service is running.
+
+A table differs for a while without anything being wrong: local changes the sync has not moved yet (until the next run; with `-instant`, seconds), and on a two-way table live changes not pulled yet. A difference that stays after a sync is real: rows changed on the live DB directly, a raw SQL update that did not touch `updatedAt`, a restore of an old backup. To repair one table without a full reload, delete its watermark on the live DB; the next run compares all its rows and writes only the ones that differ:
+
+```sql
+DELETE FROM vknex_sync.table_state WHERE schema_name = 'public' AND table_name = 't05';
+```
+
 ## Status page (`-ui`)
 
 While it runs with `-interval`, the sync serves a small web page at `-ui` (default `http://127.0.0.1:7645/`, reachable from this machine only; `SYNC_UI=` turns it off). On Linux the desktop icon opens it; on Windows a second double-click on the running exe does. It refreshes itself every 2 seconds and shows:
@@ -300,12 +322,29 @@ While it runs with `-interval`, the sync serves a small web page at `-ui` (defau
 - **Status**: running, a run in progress, the last run failed, the instant sync paused, retrying or down, each with the error text.
 - **Last run / next run**: when, how long it took, tables and rows written and deleted, and a countdown to the next interval run. **Sync now** starts an interval run right away instead of waiting.
 - **Instant sync**: listening, syncing or retrying, how many tables are instant and how many follow the interval, the last change synced and the tables waiting for a retry.
-- **Tables**: every synced table with its `dtm_kind`, when it is synced (instant, every 5m, every 1h), its last-synced time on the live database (`vknex_sync.table_state`) and notes such as "no primary key: replaced on each run", with a filter.
+- **Tables**: every synced table with its `dtm_kind`, when it is synced (instant, every 5m, every 1h), its last-synced time on the live database (`vknex_sync.table_state`) and notes such as "no primary key: replaced when it differs", with a filter.
 - **Run history**: the last 100 rows of `vknex_sync.run_log` on the live database.
 - **Log**: the last 300 log lines, with a switch for warnings and errors only.
 - **Settings**: the configuration the process runs with, without passwords.
 
-The page reads `table_state` and `run_log` from the live database at most every 5 seconds; everything else comes from the process itself. Nothing on it changes data: the only action is "Sync now". `-dry-run` and a single run (no `-interval`) serve no page. To reach it from another machine, set `SYNC_UI=0.0.0.0:7645` and open the port in the firewall, keeping in mind that the page has no login.
+The page reads `table_state` and `run_log` from the live database at most every 5 seconds; everything else comes from the process itself. Nothing on it changes data: the only action is "Sync now". `-dry-run` and a single run (no `-interval`) serve no page. To reach it from another machine, set `SYNC_UI=0.0.0.0:7645`, open the port in the firewall and set `SYNC_UI_PASSWORD`: the browser then asks for it (any user name will do). A page reachable from other machines without a password is named in a warning at start. The password goes over plain HTTP, so use it on a network you trust, or reach the page through an SSH tunnel. "Sync now" only works from the page itself: another website open in the same browser cannot press it.
+
+**Health check.** `http://127.0.0.1:7645/health` answers `200` while the sync works and `503` when it does not, with a short JSON body, for a monitor such as UptimeRobot or Zabbix, or a `curl -f` in cron. It needs no password and tells no more than this:
+
+```json
+{"ok":false,"status":"failing","reason":"the interval runs fail since 2026-10-27T09:21:04+05:30","lastOkRun":1793083800000}
+```
+
+| `status` | When | HTTP |
+|---|---|---|
+| `ok` | the last interval run worked | 200 |
+| `starting` | no run has finished since the start yet | 200 |
+| `failing` | the last interval run failed | 503 |
+| `stalled` | no interval run has worked for two intervals and a minute (hung, or skipped because another sync holds the target) | 503 |
+| `instant-down` | the instant sync stopped and waits to restart | 503 |
+| `instant-retrying` | the instant sync has been retrying for two intervals and a minute | 503 |
+
+The desktop icon uses it to see whether the page is up.
 
 ## Mail when it fails or stops (`-mail-to`)
 
@@ -316,6 +355,8 @@ With `-mail-to` (comma-separated addresses) the sync sends a mail, subject `[vkn
 - **stopped**: the program ended. Ctrl-C, `systemctl stop`, the desktop icon's Stop, Task Manager > End task, or a crash (the mail carries the stack trace; the Linux service starts it again after 30 s). A `kill -9`, a power cut or a machine that dies cannot send anything.
 
 The mails go through `-smtp` (`host:port`) as `-smtp-user` / `-smtp-password`, from `-mail-from` (default: the user). Port 465 is TLS from the start, any other port uses STARTTLS when the server offers it. Gmail: `smtp.gmail.com:587`, the Gmail address as user and an **app password** (Google account → Security → 2-Step Verification → App passwords), not the account password. After filling in `.env`, `vknex-dbsync -mail-test` sends a test mail and exits. Incomplete mail settings are a configuration error and the program does not start: `-mail-to` needs `-smtp`, and `-mail-from` when the user is not an address. `-dry-run` never mails.
+
+A mail that cannot be sent because the mail server cannot be reached (the network or DNS is down, often right after boot) waits and is tried again every minute, and with every new mail, oldest first. It arrives late with a **Delayed** row saying when it was written; the log says `could not send the mail; it is sent when the mail server can be reached` once per mail and `mail sent … late=…` when it goes. A mail the server turns down (a wrong password, an unknown sender) is not tried again. At most 50 mails wait; mails still waiting when the program stops are lost, and so are those of a run-once process (no `-interval`).
 
 ## Client list (`-client-name`)
 
@@ -331,13 +372,13 @@ With `-client-name` the sync saves its own row there when it starts: the client 
 
 - **One-way, except the `-two-way` tables.** Anything written directly on the live DB to any other synced table is overwritten or deleted on the next run. If live users also enter data there, exclude those tables, make them two-way, or use a different design.
 - **Changes are found through `updatedAt`.** Prisma's `@updatedAt` sets it on every update through Prisma. Raw SQL updates that don't touch `updatedAt` are not picked up until the next full run. Tables without an `updatedAt` column are compared in full every run.
-- **Delete detection reads every primary key** of every table on each run. That is cheap for most tables; for very large ones run with `-deletes=false` on the frequent schedule and a second job with deletes on, e.g. hourly.
-- **Tables without a primary key** are deleted and reloaded on every run.
+- **Delete detection compares a fingerprint of every table's primary keys** on each run, on both sides. When they differ, the rows written in this run and, with `-mark-synced`, the rows in `public.sync_deleted_rows` usually account for it; only when they do not (a delete made with triggers off, a `TRUNCATE`, a row deleted on the live DB) are the source's keys copied to the target. The delete log is only used where the fingerprint confirms it, so a delete it misses is still found. Computing the fingerprint reads every key, which is cheap for most tables; for very large ones run with `-deletes=false` on the frequent schedule and a second job with deletes on, e.g. hourly.
+- **Tables without a primary key** are deleted and reloaded whenever their rows differ from the target's.
 - **`GENERATED ALWAYS AS IDENTITY`** values are copied on insert but never updated (PostgreSQL forbids it). `GENERATED ... STORED` columns are skipped and recomputed by the target.
 - **Triggers on the target fire** during the sync unless `-disable-triggers` is set. Triggers that check one row against others (e.g. "name already used") can fire on a half-applied state; use `-disable-triggers` for a true mirror.
 - **`NOT VALID` constraints**: source rows may legitimately break them. When a written row does, the target's copy is dropped for the run and re-added `NOT VALID` after the data.
 - **Same records under different ids.** When the live DB was filled separately (seed data, ids from its own sequences), its rows collide with the source's on unique keys and `EXCLUDE` constraints (including partial, expression and `NULLS NOT DISTINCT` indexes). Target rows that are gone from the source are removed first; with `-disable-triggers`, rows both sides have that hold each other's unique values are deleted and written back in the same step.
-- **Network latency dominates.** Every statement is one round trip; over a 260 ms link a run over ~190 tables takes 5–7 minutes even when little changed.
+- **Network latency dominates.** Every round trip waits for the link. A run costs about 15 round trips of its own, plus one or two COPYs for each table with changed rows; the other statements go in batches. Over a 580 ms link a run over 40 tables takes about 12 s when nothing changed and 25 s with changes in a dozen tables (before batching: 2–2½ minutes).
 - The first incremental run without a previous watermark stages every row in temp tables on RDS. Use `-mode full -yes` for the initial load instead.
 
 ## Tested scenarios

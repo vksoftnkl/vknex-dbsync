@@ -418,18 +418,13 @@ func (w *watcher) runTables(ctx context.Context, names []string) error {
 		}
 	}
 
-	dstTx, locked, err := s.begin(ctx, w.dst, instantLockKey)
+	dstTx, locked, state, err := s.begin(ctx, w.dst, instantLockKey)
 	if err != nil {
 		return err
 	}
 	defer dstTx.Rollback(context.Background())
 	if !locked {
 		return errBusy
-	}
-
-	state, err := s.loadState(ctx, dstTx)
-	if err != nil {
-		return err
 	}
 	var st runStats
 	if err := s.incremental(ctx, w.src, dstTx, tables, order, state, snapshot, &st); err != nil {

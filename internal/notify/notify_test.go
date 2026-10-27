@@ -2,6 +2,7 @@ package notify
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime"
@@ -9,7 +10,9 @@ import (
 	"net"
 	"net/mail"
 	"net/textproto"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -288,5 +291,88 @@ func TestSMTP(t *testing.T) {
 	}
 	if strings.Contains(msg, ":p@") {
 		t.Errorf("mail shows the database password:\n%s", msg)
+	}
+}
+
+// flaky returns a Notifier whose mail server cannot be reached while *down;
+// it records each mail it takes, with whether the mail says it was delayed.
+func flaky(interval time.Duration) (n *Notifier, setDown func(bool), sent func() []string, delivered <-chan struct{}) {
+	cfg := &config.Config{MailTo: []string{"to@example.com"}, MailFrom: "from@example.com", SMTPAddr: "localhost:25", MailRepeat: time.Hour, Interval: interval}
+	n = New(cfg, "", quiet)
+	n.retryIn = 20 * time.Millisecond
+	var mu sync.Mutex
+	down, got := true, []string{}
+	ch := make(chan struct{}, 100)
+	n.send = func(m *message) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if down {
+			return &net.DNSError{Err: "server misbehaving", Name: "smtp.example.com"}
+		}
+		delayed := slices.ContainsFunc(n.facts(m), func(f fact) bool { return f.Key == "Delayed" })
+		got = append(got, fmt.Sprintf("%s delayed=%t", m.Event, delayed))
+		ch <- struct{}{}
+		return nil
+	}
+	setDown = func(d bool) { mu.Lock(); down = d; mu.Unlock() }
+	sent = func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(got) }
+	return n, setDown, sent, ch
+}
+
+func TestUnsentWait(t *testing.T) {
+	n, setDown, sent, delivered := flaky(5 * time.Minute)
+	boom := errors.New("boom")
+	n.Failed("sync", boom)
+	n.Failed("instant sync", boom)
+	if len(sent()) != 0 {
+		t.Fatalf("sent %v while the mail server was down", sent())
+	}
+	setDown(false)
+	n.Recovered("sync") // the waiting mails go first, whether this or the retry sends them
+	want := []string{"Sync failed delayed=true", "Instant sync failed delayed=true", "Sync recovered delayed=false"}
+	if got := sent(); !slices.Equal(got, want) {
+		t.Fatalf("sent %q, want %q", got, want)
+	}
+
+	setDown(true)
+	n.Failed("sync", boom)
+	setDown(false)
+	for range 4 {
+		select {
+		case <-delivered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the waiting mail was not sent again")
+		}
+	}
+	if got := sent(); got[len(got)-1] != "Sync failed delayed=true" {
+		t.Fatalf("sent %q, want the retry to send the waiting failure", got)
+	}
+}
+
+func TestUnsentDropped(t *testing.T) {
+	boom := errors.New("boom")
+	n, _, _, _ := flaky(0) // run once (Task Scheduler): no later retry
+	n.Failed("sync", boom)
+	if len(n.unsent) != 0 || n.retrying {
+		t.Errorf("run once: %d mails wait, retry due %t; want none", len(n.unsent), n.retrying)
+	}
+
+	n, _, _, _ = flaky(5 * time.Minute)
+	n.Failed("sync", boom)
+	n.Stopped("Told to stop.")
+	if len(n.unsent) != 0 {
+		t.Errorf("stopped: %d mails wait; want none", len(n.unsent))
+	}
+
+	var tries int
+	n = stub(time.Hour, new([]string))
+	n.send = func(*message) error {
+		tries++
+		return &textproto.Error{Code: 535, Msg: "5.7.8 Username and Password not accepted"}
+	}
+	n.Failed("sync", boom)
+	n.Failed("instant sync", boom)
+	if tries != 2 || len(n.unsent) != 0 || n.retrying {
+		t.Errorf("refused: %d tries, %d waiting, retry due %t; want 2 tries and nothing waiting", tries, len(n.unsent), n.retrying)
 	}
 }

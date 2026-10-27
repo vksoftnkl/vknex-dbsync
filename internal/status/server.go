@@ -2,6 +2,8 @@ package status
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -54,13 +56,10 @@ func Start(ctx context.Context, addr string, st *Status, cfg *config.Config, log
 		host = "unknown host"
 	}
 	s := &server{st: st, cfg: cfg, log: log, host: host, logFile: logFile, settings: settings(cfg, logFile)}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.index)
-	mux.HandleFunc("GET /api/status", s.status)
-	mux.HandleFunc("GET /api/tables", s.tables)
-	mux.HandleFunc("GET /api/runs", s.runLog)
-	mux.HandleFunc("POST /api/sync", s.syncNow)
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Handler: s.handler(), ReadHeaderTimeout: 5 * time.Second}
+	if cfg.UIPassword == "" && !local(ln.Addr()) {
+		log.Warn("the status page can be opened from other machines without a password; set SYNC_UI_PASSWORD", "addr", addr)
+	}
 	go func() {
 		<-ctx.Done()
 		stop, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -90,6 +89,104 @@ func URL(addr string) string {
 		host = "[" + host + "]"
 	}
 	return fmt.Sprintf("http://%s:%s/", host, port)
+}
+
+// handler routes the page, its API and /health, behind guard.
+func (s *server) handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", s.index)
+	mux.HandleFunc("GET /api/status", s.status)
+	mux.HandleFunc("GET /api/tables", s.tables)
+	mux.HandleFunc("GET /api/runs", s.runLog)
+	mux.HandleFunc("POST /api/sync", s.syncNow)
+	mux.HandleFunc("GET /health", s.health)
+	return s.guard(mux)
+}
+
+// pageHeader is sent by the page's own script with every POST. A form on
+// another site, open in the same browser, can post here but cannot set it.
+const pageHeader = "X-Vknex-Page"
+
+// guard asks for -ui-password (HTTP Basic, any user name) on every request but
+// /health, and refuses a POST that does not come from the page itself.
+func (s *server) guard(next http.Handler) http.Handler {
+	want := sha256.Sum256([]byte(s.cfg.UIPassword))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if s.cfg.UIPassword != "" {
+			_, pass, ok := r.BasicAuth()
+			got := sha256.Sum256([]byte(pass)) // same length either way: the compare takes the same time
+			if !ok || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
+				time.Sleep(500 * time.Millisecond) // slows down guessing
+				w.Header().Set("WWW-Authenticate", `Basic realm="vknex-dbsync status", charset="UTF-8"`)
+				http.Error(w, "password required", http.StatusUnauthorized)
+				return
+			}
+		}
+		if r.Method == http.MethodPost && r.Header.Get(pageHeader) == "" {
+			http.Error(w, "missing "+pageHeader+" header", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// local reports whether addr is reachable from this machine only.
+func local(addr net.Addr) bool {
+	tcp, ok := addr.(*net.TCPAddr)
+	return ok && tcp.IP.IsLoopback()
+}
+
+// Health is the answer of /health.
+type Health struct {
+	OK        bool   `json:"ok"`
+	Status    string `json:"status"`           // ok, starting, failing, stalled, instant-down, instant-retrying
+	Reason    string `json:"reason,omitempty"` // why not ok, without host names or error text
+	LastOKRun int64  `json:"lastOkRun"`        // Unix ms when the last interval run that worked ended; 0 = none yet
+}
+
+// health answers 200 while the sync works and 503 when it does not, for a
+// monitor (UptimeRobot, Zabbix, a curl in cron). It needs no password, so it
+// says no more than that.
+func (s *server) health(w http.ResponseWriter, r *http.Request) {
+	h := HealthOf(s.st.Snapshot(), s.cfg.Interval, time.Now())
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if !h.OK {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	json.NewEncoder(w).Encode(h)
+}
+
+// HealthOf judges snap of a process running interval runs every interval.
+// A run may take a while, so only a run missing for two intervals and a
+// minute counts as stalled.
+func HealthOf(snap Snapshot, interval time.Duration, now time.Time) Health {
+	late := 2*interval + time.Minute
+	at := func(ms int64) string { return time.UnixMilli(ms).Format(time.RFC3339) }
+	h := Health{Status: "ok"}
+	if snap.Runs.LastOK != nil {
+		h.LastOKRun = snap.Runs.LastOK.FinishedAt
+	}
+	switch {
+	case snap.Runs.FailingSince != 0:
+		h.Status, h.Reason = "failing", "the interval runs fail since "+at(snap.Runs.FailingSince)
+	case h.LastOKRun == 0 && now.Sub(time.UnixMilli(snap.StartedAt)) > late:
+		h.Status, h.Reason = "stalled", "no interval run has worked since the start at "+at(snap.StartedAt)
+	case h.LastOKRun != 0 && now.Sub(time.UnixMilli(h.LastOKRun)) > late:
+		h.Status, h.Reason = "stalled", "no interval run has worked since "+at(h.LastOKRun)
+	case snap.Instant.Enabled && snap.Instant.State == "down":
+		h.Status, h.Reason = "instant-down", "the instant sync is down since "+at(snap.Instant.Since)
+	case snap.Instant.Enabled && snap.Instant.State == "retrying" && now.Sub(time.UnixMilli(snap.Instant.Since)) > late:
+		h.Status, h.Reason = "instant-retrying", "the instant sync is retrying since "+at(snap.Instant.Since)
+	case h.LastOKRun == 0:
+		h.Status = "starting"
+	}
+	h.OK = h.Status == "ok" || h.Status == "starting"
+	return h
 }
 
 func (s *server) index(w http.ResponseWriter, r *http.Request) {
@@ -346,5 +443,6 @@ func settings(cfg *config.Config, logFile string) []Setting {
 		{"Naive timestamp zone", cfg.NaiveTZ},
 		{"Sync state schema", cfg.MetaSchema},
 		{"Log file", logFile},
+		{"Status page password", yn(cfg.UIPassword != "")},
 	}
 }

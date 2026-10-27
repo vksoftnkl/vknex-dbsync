@@ -43,6 +43,7 @@ type Config struct {
 	TwoWayWins      string                   // "local" | "live": whose version a row changed on both sides keeps
 	TwoWayLiveIDs   int64                    // first id the target's sequences of two-way tables hand out; 0 = the source's next
 	DryRun          bool
+	Verify          bool // compare every synced table with the target and exit
 	Yes             bool
 	Interval        time.Duration
 	LockTimeout     time.Duration
@@ -51,6 +52,7 @@ type Config struct {
 	LogJSON         bool
 	LogFile         string
 	UI              string   // host:port of the status page served while running with -interval; "" = none
+	UIPassword      string   // asked for by the status page; "" = none
 	MailTo          []string // mailed when a sync fails, works again or the program stops; empty = no mail
 	MailFrom        string
 	SMTPAddr        string // host:port of the mail server
@@ -100,6 +102,7 @@ func Load(args []string) (*Config, error) {
 	fs.StringVar(&c.TwoWayWins, "two-way-wins", env("SYNC_TWO_WAY_WINS", "local"), "with -two-way, for a row changed on both sides since the last sync: local keeps the source's version, live takes the target's [SYNC_TWO_WAY_WINS]")
 	fs.Int64Var(&c.TwoWayLiveIDs, "two-way-live-ids", envInt("SYNC_TWO_WAY_LIVE_IDS", 0), "with -two-way: the target's sequences of the two-way tables hand out ids from this one on (e.g. 1000000000), so that rows created on each side never get the same id; 0 = they follow the source's [SYNC_TWO_WAY_LIVE_IDS]")
 	fs.BoolVar(&c.DryRun, "dry-run", envBool("SYNC_DRY_RUN", false), "show the plan and row counts, change nothing [SYNC_DRY_RUN]")
+	fs.BoolVar(&c.Verify, "verify", envBool("SYNC_VERIFY", false), "compare every synced table with the target by row count and checksum, report the ones that differ and exit; changes nothing [SYNC_VERIFY]")
 	fs.BoolVar(&c.Yes, "yes", envBool("SYNC_YES", false), "required for -mode full (it truncates target tables) [SYNC_YES]")
 	fs.DurationVar(&c.Interval, "interval", envDur("SYNC_INTERVAL", 0), "repeat every interval (e.g. 5m); 0 = run once [SYNC_INTERVAL]")
 	fs.DurationVar(&c.LockTimeout, "lock-timeout", envDur("SYNC_LOCK_TIMEOUT", 30*time.Second), "target lock_timeout [SYNC_LOCK_TIMEOUT]")
@@ -108,6 +111,7 @@ func Load(args []string) (*Config, error) {
 	fs.BoolVar(&c.LogJSON, "log-json", envBool("SYNC_LOG_JSON", false), "JSON logs [SYNC_LOG_JSON]")
 	fs.StringVar(&c.LogFile, "log-file", env("SYNC_LOG_FILE", ""), "append the logs to this file instead of stdout; without a console they go to vknex-dbsync.log next to the binary [SYNC_LOG_FILE]")
 	fs.StringVar(&c.UI, "ui", env("SYNC_UI", "127.0.0.1:7645"), "with -interval: serve the status page at this host:port (open http://127.0.0.1:7645/); empty = no page [SYNC_UI]")
+	fs.StringVar(&c.UIPassword, "ui-password", env("SYNC_UI_PASSWORD", ""), "password the status page asks for (any user name); /health needs none; empty = no password [SYNC_UI_PASSWORD]")
 	mailTo := fs.String("mail-to", env("SYNC_MAIL_TO", ""), "comma-separated addresses mailed when a sync fails, works again or the program stops; empty = no mail [SYNC_MAIL_TO]")
 	fs.StringVar(&c.MailFrom, "mail-from", env("SYNC_MAIL_FROM", ""), "sender address; default -smtp-user [SYNC_MAIL_FROM]")
 	fs.StringVar(&c.SMTPAddr, "smtp", env("SYNC_SMTP", ""), "mail server host:port, e.g. smtp.gmail.com:587 (STARTTLS) or :465 (TLS) [SYNC_SMTP]")
@@ -154,9 +158,9 @@ func Load(args []string) (*Config, error) {
 		return nil, errors.New("-ddl-drop only works together with -ddl")
 	case c.Mode != "incremental" && c.Mode != "full":
 		return nil, fmt.Errorf("unknown mode %q (use incremental or full)", c.Mode)
-	case c.Mode == "full" && !c.Yes && !c.DryRun:
+	case c.Mode == "full" && !c.Yes && !c.DryRun && !c.Verify:
 		return nil, errors.New("-mode full TRUNCATES every synced table on the target; re-run with -yes to confirm (take an RDS snapshot first)")
-	case c.Instant && c.Interval <= 0 && !c.DryRun:
+	case c.Instant && c.Interval <= 0 && !c.DryRun && !c.Verify:
 		return nil, errors.New("-instant needs -interval: the -txn-tables are synced on that schedule")
 	case c.TableMaster != "" && len(c.InstantKinds) == 0:
 		return nil, errors.New("-table-master needs at least one -instant-kinds value, e.g. MASTER")

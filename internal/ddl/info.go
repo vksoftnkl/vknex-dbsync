@@ -30,10 +30,16 @@ JOIN pg_enum e      ON e.enumtypid = t.oid
 WHERE n.nspname::text = ANY($1::text[])
 GROUP BY n.nspname, t.typname`
 
+const schemasSQL = "SELECT nspname::text FROM pg_namespace WHERE nspname::text = ANY($1::text[])"
+
+// InfoQueries are the queries LoadInfo runs, in its order, each with the
+// schema list as its one argument (see schema.LoadQueries).
+var InfoQueries = []string{schemasSQL, enumSQL, funcSQL}
+
 // LoadInfo reads the schemas, enum types and functions of the given schemas.
 func LoadInfo(ctx context.Context, q pg.Querier, schemas []string) (*Info, error) {
 	info := &Info{Schemas: map[string]bool{}, Enums: map[string][]string{}, Funcs: map[string]string{}}
-	rows, err := q.Query(ctx, "SELECT nspname::text FROM pg_namespace WHERE nspname::text = ANY($1::text[])", schemas)
+	rows, err := q.Query(ctx, schemasSQL, schemas)
 	if err != nil {
 		return nil, fmt.Errorf("read schemas: %w", err)
 	}

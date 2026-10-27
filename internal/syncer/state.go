@@ -76,11 +76,19 @@ func (s *Syncer) ensureMeta(ctx context.Context, dst *pgx.Conn) error {
 }
 
 func (s *Syncer) loadState(ctx context.Context, q pg.Querier) (map[string]time.Time, error) {
-	rows, err := q.Query(ctx, fmt.Sprintf("SELECT schema_name, table_name, last_synced_at FROM %s WHERE schema_name = ANY($1)",
-		pg.QName(s.cfg.MetaSchema, "table_state")), s.cfg.Schemas)
+	rows, err := q.Query(ctx, s.stateSQL(), s.cfg.Schemas)
 	if err != nil {
 		return nil, err
 	}
+	return scanState(rows)
+}
+
+// stateSQL reads the watermarks of the -schema tables; its one argument is the schema list.
+func (s *Syncer) stateSQL() string {
+	return fmt.Sprintf("SELECT schema_name, table_name, last_synced_at FROM %s WHERE schema_name = ANY($1)", pg.QName(s.cfg.MetaSchema, "table_state"))
+}
+
+func scanState(rows pgx.Rows) (map[string]time.Time, error) {
 	defer rows.Close()
 	out := map[string]time.Time{}
 	for rows.Next() {
@@ -94,15 +102,15 @@ func (s *Syncer) loadState(ctx context.Context, q pg.Querier) (map[string]time.T
 	return out, rows.Err()
 }
 
-// saveState records the watermark of every table of the run and the run
-// itself; mode is the -mode, or "instant" for a run of Watch. The live changes
+// queueState queues on batch the statements that record the watermark of
+// every table of the run and the run itself; mode is the -mode, or "instant"
+// for a run of Watch. The live changes
 // of its two-way tables pulled before snapshot are done with: this run wrote
 // their rows as pulled, and every later run reads them that way too.
-func (s *Syncer) saveState(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, mode string, snapshot, started time.Time, st *runStats) error {
+func (s *Syncer) queueState(batch *pgx.Batch, tables map[string]*schema.Table, mode string, snapshot, started time.Time, st *runStats) {
 	q := fmt.Sprintf(`INSERT INTO %s (schema_name, table_name, last_synced_at) VALUES ($1, $2, $3)
 		ON CONFLICT (schema_name, table_name) DO UPDATE SET last_synced_at = EXCLUDED.last_synced_at, updated_at = now()`,
 		pg.QName(s.cfg.MetaSchema, "table_state"))
-	batch := &pgx.Batch{}
 	for _, t := range tables {
 		batch.Queue(q, t.Schema, t.Name, snapshot)
 	}
@@ -113,8 +121,4 @@ func (s *Syncer) saveState(ctx context.Context, tx pgx.Tx, tables map[string]*sc
 		batch.Queue(fmt.Sprintf("DELETE FROM %s WHERE pulled_at < $1 AND schema_name || '.' || table_name = ANY($2::text[])", s.liveChanges()),
 			snapshot, twoWay)
 	}
-	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
-		return fmt.Errorf("save sync state: %w", err)
-	}
-	return nil
 }

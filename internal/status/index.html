@@ -342,7 +342,7 @@ function renderTables() {
   else if (!rows.length) body.append(emptyRow(5, 'No table matches.'));
   for (const t of rows) {
     const notes = [];
-    if (!t.hasPk) notes.push('no primary key: replaced on each run');
+    if (!t.hasPk) notes.push('no primary key: replaced when it differs');
     else if (!t.updatedCol) notes.push('no change column: compared in full');
     if (t.partitions) notes.push(t.partitions + ' partitions');
     if (t.syncCol) notes.push('stamps ' + t.syncCol);
@@ -491,7 +491,7 @@ $('errorsOnly').addEventListener('change', e => {
 });
 $('syncNow').addEventListener('click', async () => {
   $('syncNow').disabled = true;
-  try { await getJSON('/api/sync', { method: 'POST' }); } catch (e) {}
+  try { await getJSON('/api/sync', { method: 'POST', headers: { 'X-Vknex-Page': '1' } }); } catch (e) {}
   pollStatus();
 });
 

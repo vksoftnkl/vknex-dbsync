@@ -37,6 +37,21 @@ func readSourceSequences(ctx context.Context, tx pgx.Tx, tables map[string]*sche
 // there on, and on the source the ids from there on are the target's.
 func (s *Syncer) setSequences(ctx context.Context, tx pgx.Tx, tables map[string]*schema.Table, other map[seqKey]int64, onTarget bool) error {
 	batch := &pgx.Batch{} // one round trip for every sequence
+	cols := s.queueSequences(batch, tables, other, onTarget)
+	if len(cols) == 0 {
+		return nil
+	}
+	br := tx.SendBatch(ctx, batch)
+	if err := sequencesDone(br, cols); err != nil {
+		br.Close()
+		return err
+	}
+	return br.Close()
+}
+
+// queueSequences queues the statements of setSequences on batch and returns
+// the column each one is for, to read them back with sequencesDone.
+func (s *Syncer) queueSequences(batch *pgx.Batch, tables map[string]*schema.Table, other map[seqKey]int64, onTarget bool) []string {
 	var cols []string
 	for name, t := range tables {
 		for _, col := range t.SeqCols {
@@ -56,15 +71,15 @@ func (s *Syncer) setSequences(ctx context.Context, tx pgx.Tx, tables map[string]
 			cols = append(cols, name+"."+col)
 		}
 	}
-	if len(cols) == 0 {
-		return nil
-	}
-	br := tx.SendBatch(ctx, batch)
+	return cols
+}
+
+// sequencesDone reads the results of queueSequences from br, leaving it open.
+func sequencesDone(br pgx.BatchResults, cols []string) error {
 	for _, col := range cols {
 		if _, err := br.Exec(); err != nil {
-			br.Close()
 			return fmt.Errorf("set sequence of %s: %w", col, err)
 		}
 	}
-	return br.Close()
+	return nil
 }

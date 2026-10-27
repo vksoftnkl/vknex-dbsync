@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,9 +20,17 @@ import (
 	"github.com/vksoftwares/vknex-dbsync/internal/pg"
 )
 
-// timeout bounds the whole SMTP conversation: a hanging mail server must not
-// hold up the next run or the exit.
-const timeout = 30 * time.Second
+const (
+	// timeout bounds the whole SMTP conversation: a hanging mail server must
+	// not hold up the next run or the exit.
+	timeout = 30 * time.Second
+
+	// A mail the server cannot take waits, and goes out with the next mail or
+	// after retryUnsent: a sync fails most often when the network is down,
+	// and so does the mail about it.
+	retryUnsent = time.Minute
+	maxUnsent   = 50 // beyond this the oldest waiting mail is dropped
+)
 
 // Notifier sends the mails. A nil Notifier (no -mail-to, or -dry-run) sends
 // nothing, so callers never check for one.
@@ -32,9 +42,15 @@ type Notifier struct {
 	target  string               // the same for the target
 	logFile string               // where the logs go, in every mail; "" = the console
 	send    func(*message) error // smtpSend; a stub in tests
+	retryIn time.Duration        // retryUnsent; shorter in tests
 
-	mu      sync.Mutex
-	failing map[string]outage // what -> its outage, while it keeps failing
+	sending sync.Mutex // one flush at a time, so the mails leave in order
+
+	mu       sync.Mutex
+	failing  map[string]outage // what -> its outage, while it keeps failing
+	unsent   []*message        // waiting for the mail server, oldest first
+	retrying bool              // a flush is due after retryIn
+	stopping bool              // Stopped or Crashed: no later flush will come
 }
 
 type outage struct{ since, mailed time.Time }
@@ -52,7 +68,7 @@ func New(cfg *config.Config, logFile string, log *slog.Logger) *Notifier {
 	n := &Notifier{
 		cfg: cfg, log: log, host: host, logFile: logFile,
 		source: pg.Describe(cfg.SourceURL), target: pg.Describe(cfg.TargetURL),
-		failing: map[string]outage{},
+		failing: map[string]outage{}, retryIn: retryUnsent,
 	}
 	n.send = n.smtpSend
 	return n
@@ -127,6 +143,7 @@ func (n *Notifier) Stopped(why string) {
 	if n == nil {
 		return
 	}
+	n.stop()
 	now := time.Now()
 	n.mail(&message{
 		Tone:    toneStopped,
@@ -141,6 +158,7 @@ func (n *Notifier) Crashed(r any, stack string) {
 	if n == nil {
 		return
 	}
+	n.stop()
 	now := time.Now()
 	n.mail(&message{
 		Tone:  toneCrashed,
@@ -167,12 +185,102 @@ func (n *Notifier) Test() error {
 	})
 }
 
+// mail sends m after the mails still waiting for the mail server.
 func (n *Notifier) mail(m *message) {
-	if err := n.send(m); err != nil {
-		n.log.Error("could not send the mail", "subject", m.Event, "err", err)
+	m.written = time.Now()
+	n.mu.Lock()
+	if len(n.unsent) >= maxUnsent {
+		old := n.unsent[0]
+		n.unsent = n.unsent[1:]
+		n.log.Warn("mail dropped: too many mails wait for the mail server", "subject", old.Event, "written", stamp(old.written))
+	}
+	n.unsent = append(n.unsent, m)
+	n.mu.Unlock()
+	n.flush(m)
+}
+
+// flush sends the waiting mails, oldest first, until the mail server cannot
+// be reached; then they wait for the next mail or retryIn. added is the mail
+// just written, nil for a retry: only a new mail logs that it has to wait, so
+// a long outage logs once per mail, not once per retry.
+func (n *Notifier) flush(added *message) {
+	n.sending.Lock()
+	defer n.sending.Unlock()
+	to := strings.Join(n.cfg.MailTo, ",")
+	for {
+		n.mu.Lock()
+		if len(n.unsent) == 0 {
+			n.mu.Unlock()
+			return
+		}
+		m := n.unsent[0]
+		n.mu.Unlock()
+
+		err := n.send(m)
+		if err != nil && !refused(err) {
+			n.wait(added, err)
+			return
+		}
+		n.mu.Lock()
+		n.unsent = slices.DeleteFunc(n.unsent, func(w *message) bool { return w == m }) // mail may have dropped it meanwhile
+		n.mu.Unlock()
+		switch {
+		case err != nil:
+			n.log.Error("could not send the mail: the mail server refused it", "subject", m.Event, "err", err)
+		case m.held:
+			n.log.Info("mail sent", "subject", m.Event, "to", to, "late", human(time.Since(m.written)))
+		default:
+			n.log.Info("mail sent", "subject", m.Event, "to", to)
+		}
+	}
+}
+
+// wait keeps the unsent mails for a later flush after err, or drops them when
+// none will come: the program stops, or it runs once (no -interval).
+func (n *Notifier) wait(added *message, err error) {
+	n.mu.Lock()
+	if n.stopping || n.cfg.Interval <= 0 {
+		lost := make([]string, len(n.unsent))
+		for i, w := range n.unsent {
+			lost[i] = w.Event
+		}
+		n.unsent = nil
+		n.mu.Unlock()
+		n.log.Error("could not send the mail", "subjects", strings.Join(lost, ","), "err", err)
 		return
 	}
-	n.log.Info("mail sent", "subject", m.Event, "to", strings.Join(n.cfg.MailTo, ","))
+	for _, w := range n.unsent {
+		w.held = true
+	}
+	waiting := len(n.unsent)
+	if !n.retrying {
+		n.retrying = true
+		time.AfterFunc(n.retryIn, func() {
+			n.mu.Lock()
+			n.retrying = false
+			n.mu.Unlock()
+			n.flush(nil)
+		})
+	}
+	n.mu.Unlock()
+	if added != nil {
+		n.log.Error("could not send the mail; it is sent when the mail server can be reached",
+			"subject", added.Event, "waiting", waiting, "retry_in", n.retryIn.String(), "err", err)
+	}
+}
+
+// stop tells flush that no retry will come: the mails go now or never.
+func (n *Notifier) stop() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.stopping = true
+}
+
+// refused reports whether the mail server answered and turned the mail down
+// (SMTP 5xx: a wrong password, an unknown sender): sending it again would not help.
+func refused(err error) bool {
+	var te *textproto.Error
+	return errors.As(err, &te) && te.Code >= 500
 }
 
 func stamp(t time.Time) string {

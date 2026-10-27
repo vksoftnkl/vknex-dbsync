@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/vksoftwares/vknex-dbsync/internal/config"
+	"github.com/vksoftwares/vknex-dbsync/internal/logfile"
 	"github.com/vksoftwares/vknex-dbsync/internal/notify"
 	"github.com/vksoftwares/vknex-dbsync/internal/pg"
 	"github.com/vksoftwares/vknex-dbsync/internal/registry"
@@ -52,13 +53,15 @@ func main() {
 		fatal(background, "vknex-dbsync is already running in the background.\n\nTo stop it: Task Manager > Details > vknex-dbsync.exe > End task.", 0)
 	}
 
+	var log *slog.Logger
 	out := io.Writer(os.Stdout)
 	logFile := cfg.LogFile
 	if logFile == "" && background {
 		logFile = besideBinary("vknex-dbsync.log")
 	}
 	if logFile != "" {
-		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		// rotated by size: logfile.MaxSize, logfile.Keep older files beside it
+		f, err := logfile.Open(logFile, func(err error) { log.Warn("log file not rotated; tried again later", "err", err) })
 		if err != nil {
 			fatal(background, "log file: "+err.Error(), 2)
 		}
@@ -74,7 +77,7 @@ func main() {
 	if cfg.LogJSON {
 		handler = slog.NewJSONHandler(out, nil)
 	}
-	log := slog.New(handler)
+	log = slog.New(handler)
 
 	n := notify.New(cfg, logFile, log) // nil without -mail-to
 	defer mailCrash(log, n)
@@ -117,6 +120,19 @@ func main() {
 
 	s := syncer.New(cfg, log, n)
 	s.Status = st
+
+	if cfg.Verify {
+		// Exit status: 0 every table matches, 3 some differ, 1 the check failed.
+		differ, err := s.Verify(ctx)
+		switch {
+		case err != nil:
+			log.Error("verify failed", "err", err)
+			os.Exit(1)
+		case differ > 0:
+			os.Exit(3)
+		}
+		return
+	}
 
 	if cfg.Interval <= 0 {
 		saveClient(ctx, cfg, log)

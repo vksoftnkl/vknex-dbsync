@@ -89,7 +89,8 @@ func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 	if err := guardDifferent(ctx, src, dst); err != nil {
 		return err
 	}
-	if _, err := dst.Exec(ctx, "SELECT now() AT TIME ZONE $1", cfg.NaiveTZ); err != nil {
+	// Checked on the source: no round trip to the target, and both servers know the same zone names.
+	if _, err := src.Exec(ctx, "SELECT now() AT TIME ZONE $1", cfg.NaiveTZ); err != nil {
 		return fmt.Errorf("invalid -naive-tz %q: %w", cfg.NaiveTZ, err)
 	}
 	if cfg.TwoWay && !cfg.Instant && !cfg.DryRun {
@@ -224,7 +225,7 @@ func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 	if err := s.ensureMeta(ctx, dst); err != nil {
 		return err
 	}
-	dstTx, locked, err := s.begin(ctx, dst, advisoryLockKey)
+	dstTx, locked, state, err := s.begin(ctx, dst, advisoryLockKey)
 	if err != nil {
 		return err
 	}
@@ -266,13 +267,10 @@ func (s *Syncer) RunOnce(ctx context.Context) (err error) {
 	case "full":
 		err = s.full(ctx, src, dstTx, data, order, &st)
 	default:
-		var state map[string]time.Time
-		if state, err = s.loadState(ctx, dstTx); err == nil {
-			for name := range changes.Reset {
-				delete(state, name)
-			}
-			err = s.incremental(ctx, src, dstTx, data, order, state, snapshot, &st)
+		for name := range changes.Reset {
+			delete(state, name)
 		}
+		err = s.incremental(ctx, src, dstTx, data, order, state, snapshot, &st)
 	}
 	if err != nil {
 		return err
@@ -372,15 +370,20 @@ func (s *Syncer) order(tables map[string]*schema.Table) ([]string, error) {
 	return order, nil
 }
 
-// begin opens the target transaction, takes the advisory lock key and sets
-// the session options, in one round trip. locked is false when another sync
-// holds the lock.
-func (s *Syncer) begin(ctx context.Context, dst *pgx.Conn, key int64) (tx pgx.Tx, locked bool, err error) {
+// begin opens the target transaction, takes the advisory lock key, sets the
+// session options and reads the watermarks (loadState), in one round trip.
+// locked is false when another sync holds the lock.
+func (s *Syncer) begin(ctx context.Context, dst *pgx.Conn, key int64) (tx pgx.Tx, locked bool, state map[string]time.Time, err error) {
 	if tx, err = dst.Begin(ctx); err != nil {
-		return nil, false, fmt.Errorf("begin target: %w", err)
+		return nil, false, nil, fmt.Errorf("begin target: %w", err)
 	}
 	batch := &pgx.Batch{}
 	batch.Queue("SELECT pg_try_advisory_xact_lock($1)", key).QueryRow(func(row pgx.Row) error { return row.Scan(&locked) })
+	batch.Queue(s.stateSQL(), s.cfg.Schemas).Query(func(rows pgx.Rows) error {
+		var err error
+		state, err = scanState(rows)
+		return err
+	})
 	batch.Queue(fmt.Sprintf("SET LOCAL lock_timeout = %d", s.cfg.LockTimeout.Milliseconds()))
 	batch.Queue("SET LOCAL statement_timeout = 0")
 	if s.cfg.DisableTriggers {
@@ -391,9 +394,9 @@ func (s *Syncer) begin(ctx context.Context, dst *pgx.Conn, key int64) (tx pgx.Tx
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		tx.Rollback(context.Background())
-		return nil, false, fmt.Errorf("prepare target transaction: %w", err)
+		return nil, false, nil, fmt.Errorf("prepare target transaction: %w", err)
 	}
-	return tx, locked, nil
+	return tx, locked, state, nil
 }
 
 // waitLock waits for advisory lock key without the -lock-timeout limit; it is
@@ -417,11 +420,16 @@ func (s *Syncer) finish(ctx context.Context, tx pgx.Tx, tables map[string]*schem
 	if err := s.markTarget(ctx, tx, tables, marks, snapshot, syncedAt); err != nil {
 		return syncedAt, err
 	}
-	if err := s.setSequences(ctx, tx, tables, srcSeq, true); err != nil {
+	batch := &pgx.Batch{} // the sequences and the state in one round trip
+	cols := s.queueSequences(batch, tables, srcSeq, true)
+	s.queueState(batch, tables, mode, snapshot, started, st)
+	br := tx.SendBatch(ctx, batch)
+	if err := sequencesDone(br, cols); err != nil {
+		br.Close()
 		return syncedAt, err
 	}
-	if err := s.saveState(ctx, tx, tables, mode, snapshot, started, st); err != nil {
-		return syncedAt, err
+	if err := br.Close(); err != nil {
+		return syncedAt, fmt.Errorf("save sync state: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return syncedAt, fmt.Errorf("commit target: %w", err)
@@ -455,25 +463,34 @@ func (s *Syncer) applyDDL(ctx context.Context, tx pgx.Tx, stmts []string) error 
 	return nil
 }
 
-// readTarget introspects the target in a short read-only transaction.
+// readTarget introspects the target in a short read-only transaction. The
+// catalog queries go out in one batch: one round trip instead of one each.
+// search_path is set as in schema.CatalogPath; the transaction is rolled back,
+// so it needs no restoring.
 func readTarget(ctx context.Context, dst *pgx.Conn, cfg *config.Config) (map[string]*schema.Table, *ddl.Info, error) {
 	tx, err := dst.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, nil, err
 	}
 	defer tx.Rollback(context.Background())
-	var all map[string]*schema.Table
+	queries := schema.LoadQueries
+	if cfg.DDL {
+		queries = slices.Concat(queries, ddl.InfoQueries)
+	}
+	q, err := pg.Prefetch(ctx, tx, []string{"SET LOCAL search_path = pg_catalog"}, queries, cfg.Schemas)
+	if err != nil {
+		return nil, nil, fmt.Errorf("target schema: %w", err)
+	}
+	defer q.Close()
+	all, err := schema.Load(ctx, q, cfg.Schemas)
+	if err != nil {
+		return nil, nil, fmt.Errorf("target schema: %w", err)
+	}
 	var info *ddl.Info
-	err = schema.CatalogPath(ctx, tx, func() error {
-		var err error
-		if all, err = schema.Load(ctx, tx, cfg.Schemas); err != nil {
-			return fmt.Errorf("target schema: %w", err)
+	if cfg.DDL {
+		if info, err = ddl.LoadInfo(ctx, q, cfg.Schemas); err != nil {
+			return nil, nil, err
 		}
-		if cfg.DDL {
-			info, err = ddl.LoadInfo(ctx, tx, cfg.Schemas)
-		}
-		return err
-	})
-
-	return all, info, err
+	}
+	return all, info, q.Close()
 }

@@ -134,6 +134,11 @@ JOIN pg_namespace pn ON pn.oid = p.relnamespace
 WHERE r.relkind = 'p' AND NOT r.relispartition AND rn.nspname::text = ANY($1::text[]) AND t.level > 0
 ORDER BY 1, t.level, 2`
 
+// LoadQueries are the queries Load runs, in its order, each with the schema
+// list as its one argument, so that a caller can send them ahead in one
+// round trip (pg.Prefetch). Keep it in step with Load.
+var LoadQueries = []string{columnsSQL, pkSQL, fkSQL, uniqueSQL, seqSQL, constraintSQL, indexSQL, partitionSQL}
+
 // Load introspects every table of the given schemas. Run it inside
 // CatalogPath so that types and expressions come back schema-qualified.
 func Load(ctx context.Context, q pg.Querier, schemas []string) (map[string]*Table, error) {

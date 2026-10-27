@@ -16,11 +16,41 @@ import (
 // back the way it was written (nested ANDs are flattened, IN lists become
 // casted arrays), so it builds the source definition on an empty temp copy of
 // the target table and compares what the target prints. Everything happens in
-// a transaction that is rolled back. A nil prober only compares text.
+// a transaction that is rolled back, opened on first use: most runs find
+// every definition printed the same and need none. A nil prober only
+// compares text.
 type prober struct {
 	ctx    context.Context
-	tx     pgx.Tx
+	conn   *pgx.Conn
+	tx     pgx.Tx            // nil until the first probe
+	err    error             // opening tx failed; Build returns it
 	copies map[string]string // target table -> its temp copy
+}
+
+// open begins the probe transaction if it is not open yet.
+func (p *prober) open() bool {
+	if p.tx != nil || p.err != nil {
+		return p.err == nil
+	}
+	tx, err := p.conn.Begin(p.ctx)
+	if err == nil {
+		if _, err = tx.Exec(p.ctx, "SET LOCAL search_path = pg_catalog"); err != nil {
+			tx.Rollback(context.Background())
+		}
+	}
+	if err != nil {
+		p.err = fmt.Errorf("begin the probe transaction: %w", err)
+		return false
+	}
+	p.tx = tx
+	return true
+}
+
+// close rolls the probe transaction back, if it was opened.
+func (p *prober) close() {
+	if p.tx != nil {
+		p.tx.Rollback(context.Background())
+	}
 }
 
 func (p *prober) copyOf(d *schema.Table) (string, bool) {
@@ -37,6 +67,9 @@ func (p *prober) copyOf(d *schema.Table) (string, bool) {
 
 // try runs stmts and query in a savepoint, which is rolled back unless keep.
 func (p *prober) try(stmts []string, query string, keep bool, args ...any) (string, bool) {
+	if !p.open() {
+		return "", false
+	}
 	sp, err := p.tx.Begin(p.ctx)
 	if err != nil {
 		return "", false

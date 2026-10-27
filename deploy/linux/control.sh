@@ -36,12 +36,15 @@ start_service() {
 	running
 }
 
-# answers: the status page replies.
+# answers: the status page replies. /health needs no password (SYNC_UI_PASSWORD)
+# and answers 503 while a sync fails: any reply will do.
 answers() {
 	if command -v curl >/dev/null 2>&1; then
-		curl -fs -o /dev/null --max-time 2 "${url}api/status"
+		curl -s -o /dev/null --max-time 2 "${url}health"
 	else
-		wget -q -O /dev/null -T 2 "${url}api/status"
+		wget -q -O /dev/null -T 2 "${url}health"
+		rc=$?
+		[ "$rc" -eq 0 ] || [ "$rc" -eq 8 ] # 8: the server answered with an error status
 	fi
 }
 
